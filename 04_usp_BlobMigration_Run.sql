@@ -3,10 +3,21 @@
 -- Run from SSMS (one-off). Use @RunId to resume after interruption.
 -- =============================================================================
 
+
+-- Example usage:
+-- New run:     DECLARE @R UNIQUEIDENTIFIER; EXEC dbo.usp_BlobMigration_Run @BatchSize=500, @MaxDOP=2, @RunId=@R OUTPUT; SELECT @R AS RunId;
+-- Resume:      EXEC dbo.usp_BlobMigration_Run @RunId='<run-id>';
+-- Reset+run:   EXEC dbo.usp_BlobMigration_Run @RunId='<run-id>', @Reset=1;
+
 USE Gwent_LA_FileTable;
 GO
+/****** Object:  StoredProcedure [dbo].[usp_BlobMigration_Run]    Script Date: 28/01/2026 08:36:25 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
 
-CREATE OR ALTER PROCEDURE dbo.usp_BlobMigration_Run
+CREATE OR ALTER PROCEDURE [dbo].[usp_BlobMigration_Run]
     @BatchSize INT              = 500,
     @MaxDOP    TINYINT          = 2,
     @Reset     BIT              = 0,
@@ -237,9 +248,9 @@ WHERE RAFT.parent_path_locator IS NOT NULL
   AND LRA.stream_id IS NULL
   AND RAFT.stream_id <> @ExcludedStreamId
 ORDER BY RAFT.stream_id
-OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
+OPTION (MAXDOP 1);
 ';
-
+--MAXDOP 1 Set here because of a parallelism issue with constraints on the table
                 EXEC sp_executesql @Sql,
                     N'@BatchSize INT, @ExcludedStreamId UNIQUEIDENTIFIER',
                     @BatchSize, @ExcludedStreamId;
@@ -283,9 +294,3 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
         THROW;
     END CATCH
 END;
-GO
-
--- Example usage:
--- New run:     DECLARE @R UNIQUEIDENTIFIER; EXEC dbo.usp_BlobMigration_Run @BatchSize=500, @MaxDOP=2, @RunId=@R OUTPUT; SELECT @R AS RunId;
--- Resume:      EXEC dbo.usp_BlobMigration_Run @RunId='<run-id>';
--- Reset+run:   EXEC dbo.usp_BlobMigration_Run @RunId='<run-id>', @Reset=1;
