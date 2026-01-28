@@ -4,10 +4,11 @@
 -- =============================================================================
 
 
--- Example usage:
+-- Example usage (this proc targets ReferralAttachment; TableName default = Gwent_LA_FileTable.dbo.ReferralAttachment):
 -- New run:     DECLARE @R UNIQUEIDENTIFIER; EXEC dbo.usp_BlobMigration_Run @BatchSize=500, @MaxDOP=2, @RunId=@R OUTPUT; SELECT @R AS RunId;
 -- Resume:      EXEC dbo.usp_BlobMigration_Run @RunId='<run-id>';
 -- Reset+run:   EXEC dbo.usp_BlobMigration_Run @RunId='<run-id>', @Reset=1;
+-- Other table: EXEC dbo.usp_BlobMigration_Run @TableName=N'Gwent_LA_FileTable.dbo.OtherTable', ... (use table-specific proc copy)
 
 USE Gwent_LA_FileTable;
 GO
@@ -21,7 +22,8 @@ CREATE OR ALTER PROCEDURE [dbo].[usp_BlobMigration_Run]
     @BatchSize INT              = 500,
     @MaxDOP    TINYINT          = 2,
     @Reset     BIT              = 0,
-    @RunId     UNIQUEIDENTIFIER = NULL OUTPUT
+    @RunId     UNIQUEIDENTIFIER = NULL OUTPUT,
+    @TableName NVARCHAR(259)    = N'Gwent_LA_FileTable.dbo.ReferralAttachment'
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -49,7 +51,7 @@ BEGIN
         BEGIN
             SELECT TOP (1) @RunStartedAt = RunStartedAt
             FROM dbo.BlobMigrationProgress
-            WHERE RunId = @RunId;
+            WHERE RunId = @RunId AND TableName = @TableName;
             IF @RunStartedAt IS NULL
                 SET @RunStartedAt = SYSDATETIME();
         END
@@ -59,15 +61,15 @@ BEGIN
         -- ---------------------------------------------------------------------
         IF @Reset = 1
         BEGIN
-            DELETE FROM dbo.BlobMigration_MissingParentsQueue WHERE RunId = @RunId;
-            DELETE FROM dbo.BlobMigrationProgress            WHERE RunId = @RunId;
+            DELETE FROM dbo.BlobMigration_MissingParentsQueue WHERE RunId = @RunId AND TableName = @TableName;
+            DELETE FROM dbo.BlobMigrationProgress            WHERE RunId = @RunId AND TableName = @TableName;
         END
 
         -- ---------------------------------------------------------------------
         -- Step 1: Roots (parent_path_locator IS NULL)
         -- ---------------------------------------------------------------------
         IF NOT EXISTS (SELECT 1 FROM dbo.BlobMigrationProgress
-                       WHERE RunId = @RunId AND Step = 1 AND Status = 'Completed')
+                       WHERE RunId = @RunId AND TableName = @TableName AND Step = 1 AND Status = 'Completed')
         BEGIN
             SET @CurrentStep       = 1;
             SET @BatchNumber       = 0;
@@ -107,10 +109,10 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
                 SET @BatchCompletedAt = SYSDATETIME();
 
                 INSERT INTO dbo.BlobMigrationProgress
-                    (RunId, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
+                    (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
                      BatchStartedAt, BatchCompletedAt, Status, ErrorMessage)
                 VALUES
-                    (@RunId, @RunStartedAt, 1, @BatchNumber, @RowsInserted, @TotalRowsInserted,
+                    (@RunId, @TableName, @RunStartedAt, 1, @BatchNumber, @RowsInserted, @TotalRowsInserted,
                      @BatchStartedAt, @BatchCompletedAt, 'InProgress', NULL);
 
                 IF @RowsInserted = 0
@@ -118,10 +120,10 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
             END
 
             INSERT INTO dbo.BlobMigrationProgress
-                (RunId, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
+                (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
                  BatchStartedAt, BatchCompletedAt, Status, ErrorMessage)
             VALUES
-                (@RunId, @RunStartedAt, 1, 0, 0, @TotalRowsInserted,
+                (@RunId, @TableName, @RunStartedAt, 1, 0, 0, @TotalRowsInserted,
                  SYSDATETIME(), SYSDATETIME(), 'Completed', NULL);
         END
 
@@ -129,7 +131,7 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
         -- Step 2: Missing parents (queue + batch, always MAXDOP 1)
         -- ---------------------------------------------------------------------
         IF NOT EXISTS (SELECT 1 FROM dbo.BlobMigrationProgress
-                       WHERE RunId = @RunId AND Step = 2 AND Status = 'Completed')
+                       WHERE RunId = @RunId AND TableName = @TableName AND Step = 2 AND Status = 'Completed')
         BEGIN
             SET @CurrentStep       = 2;
             SET @BatchNumber       = 0;
@@ -137,10 +139,10 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
 
             -- Populate queue if empty (first time or after reset)
             IF NOT EXISTS (SELECT 1 FROM dbo.BlobMigration_MissingParentsQueue
-                           WHERE RunId = @RunId)
+                           WHERE RunId = @RunId AND TableName = @TableName)
             BEGIN
-                INSERT INTO dbo.BlobMigration_MissingParentsQueue (RunId, stream_id, Processed, CreatedAt)
-                SELECT @RunId, Par.stream_id, 0, SYSDATETIME()
+                INSERT INTO dbo.BlobMigration_MissingParentsQueue (RunId, TableName, stream_id, Processed, CreatedAt)
+                SELECT @RunId, @TableName, Par.stream_id, 0, SYSDATETIME()
                 FROM (
                     SELECT DISTINCT Par.stream_id
                     FROM AdvancedRBSBlob_WCCIS.dbo.ReferralAttachment RAFT WITH (NOLOCK)
@@ -168,7 +170,7 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
                 INSERT INTO #Batch (stream_id)
                 SELECT TOP (@BatchSize) stream_id
                 FROM dbo.BlobMigration_MissingParentsQueue
-                WHERE RunId = @RunId AND Processed = 0;
+                WHERE RunId = @RunId AND TableName = @TableName AND Processed = 0;
 
                 IF @@ROWCOUNT = 0
                 BEGIN
@@ -196,23 +198,23 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
 
                 UPDATE dbo.BlobMigration_MissingParentsQueue
                 SET Processed = 1
-                WHERE RunId = @RunId AND stream_id IN (SELECT stream_id FROM #Batch);
+                WHERE RunId = @RunId AND TableName = @TableName AND stream_id IN (SELECT stream_id FROM #Batch);
 
                 INSERT INTO dbo.BlobMigrationProgress
-                    (RunId, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
+                    (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
                      BatchStartedAt, BatchCompletedAt, Status, ErrorMessage)
                 VALUES
-                    (@RunId, @RunStartedAt, 2, @BatchNumber, @RowsInserted, @TotalRowsInserted,
+                    (@RunId, @TableName, @RunStartedAt, 2, @BatchNumber, @RowsInserted, @TotalRowsInserted,
                      @BatchStartedAt, @BatchCompletedAt, 'InProgress', NULL);
 
                 DROP TABLE #Batch;
             END
 
             INSERT INTO dbo.BlobMigrationProgress
-                (RunId, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
+                (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
                  BatchStartedAt, BatchCompletedAt, Status, ErrorMessage)
             VALUES
-                (@RunId, @RunStartedAt, 2, 0, 0, @TotalRowsInserted,
+                (@RunId, @TableName, @RunStartedAt, 2, 0, 0, @TotalRowsInserted,
                  SYSDATETIME(), SYSDATETIME(), 'Completed', NULL);
         END
 
@@ -220,7 +222,7 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
         -- Step 3: Children (parent_path_locator IS NOT NULL)
         -- ---------------------------------------------------------------------
         IF NOT EXISTS (SELECT 1 FROM dbo.BlobMigrationProgress
-                       WHERE RunId = @RunId AND Step = 3 AND Status = 'Completed')
+                       WHERE RunId = @RunId AND TableName = @TableName AND Step = 3 AND Status = 'Completed')
         BEGIN
             SET @CurrentStep       = 3;
             SET @BatchNumber       = 0;
@@ -260,10 +262,10 @@ OPTION (MAXDOP 1);
                 SET @BatchCompletedAt = SYSDATETIME();
 
                 INSERT INTO dbo.BlobMigrationProgress
-                    (RunId, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
+                    (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
                      BatchStartedAt, BatchCompletedAt, Status, ErrorMessage)
                 VALUES
-                    (@RunId, @RunStartedAt, 3, @BatchNumber, @RowsInserted, @TotalRowsInserted,
+                    (@RunId, @TableName, @RunStartedAt, 3, @BatchNumber, @RowsInserted, @TotalRowsInserted,
                      @BatchStartedAt, @BatchCompletedAt, 'InProgress', NULL);
 
                 IF @RowsInserted = 0
@@ -271,10 +273,10 @@ OPTION (MAXDOP 1);
             END
 
             INSERT INTO dbo.BlobMigrationProgress
-                (RunId, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
+                (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
                  BatchStartedAt, BatchCompletedAt, Status, ErrorMessage)
             VALUES
-                (@RunId, @RunStartedAt, 3, 0, 0, @TotalRowsInserted,
+                (@RunId, @TableName, @RunStartedAt, 3, 0, 0, @TotalRowsInserted,
                  SYSDATETIME(), SYSDATETIME(), 'Completed', NULL);
         END
 
@@ -282,10 +284,10 @@ OPTION (MAXDOP 1);
     BEGIN CATCH
         SET @BatchCompletedAt = SYSDATETIME();
         INSERT INTO dbo.BlobMigrationProgress
-            (RunId, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
+            (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
              BatchStartedAt, BatchCompletedAt, Status, ErrorMessage)
         VALUES
-            (@RunId, COALESCE(@RunStartedAt, SYSDATETIME()), COALESCE(@CurrentStep, 0),
+            (@RunId, @TableName, COALESCE(@RunStartedAt, SYSDATETIME()), COALESCE(@CurrentStep, 0),
              999999, 0, COALESCE(@TotalRowsInserted, 0),
              COALESCE(@BatchStartedAt, SYSDATETIME()), @BatchCompletedAt,
              'Failed', ERROR_MESSAGE());
