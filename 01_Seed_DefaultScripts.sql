@@ -109,7 +109,7 @@ SELECT RAFT.[stream_id], RAFT.[file_stream], RAFT.[name], RAFT.[path_locator],
        RAFT.[is_archive], RAFT.[is_system], RAFT.[is_temporary]
 FROM [SourceTableFull] RAFT WITH (NOLOCK)
 INNER JOIN #Batch B ON B.stream_id = RAFT.stream_id
-OPTION (MAXDOP 1);
+OPTION (MAXDOP [MaxDOP]);
 ', 0, N'Step 2: insert batch from queue (#Batch)')
 WHEN MATCHED THEN
     UPDATE SET StageName = s.StageName, ScriptBody = N'
@@ -122,7 +122,7 @@ SELECT RAFT.[stream_id], RAFT.[file_stream], RAFT.[name], RAFT.[path_locator],
        RAFT.[is_archive], RAFT.[is_system], RAFT.[is_temporary]
 FROM [SourceTableFull] RAFT WITH (NOLOCK)
 INNER JOIN #Batch B ON B.stream_id = RAFT.stream_id
-OPTION (MAXDOP 1);
+OPTION (MAXDOP [MaxDOP]);
 ', Description = s.Description;
 GO
 
