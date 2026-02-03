@@ -95,7 +95,7 @@ GO
 
 -- Step 2: Batch insert from #Batch. StageName = MissingParents.
 MERGE dbo.BlobMigrationStepScript AS t
-USING (SELECT 2 AS StepNumber, N'BatchInsert' AS ScriptKind, N'MissingParents' AS StageName, 0 AS UseParameterizedMaxDOP, N'Step 2: insert batch from queue (#Batch)' AS Description) AS s
+USING (SELECT 2 AS StepNumber, N'BatchInsert' AS ScriptKind, N'MissingParents' AS StageName, 1 AS UseParameterizedMaxDOP, N'Step 2: insert batch from queue (#Batch)' AS Description) AS s
 ON t.StepNumber = s.StepNumber AND t.ScriptKind = s.ScriptKind
 WHEN NOT MATCHED BY TARGET THEN
     INSERT (StepNumber, ScriptKind, StageName, ScriptBody, UseParameterizedMaxDOP, Description)
