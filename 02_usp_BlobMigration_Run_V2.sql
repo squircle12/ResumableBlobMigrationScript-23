@@ -1,24 +1,26 @@
 -- =============================================================================
--- Master stored procedure: batched, resumable blob migration
--- Run from SSMS (one-off). Use @RunId to resume after interruption.
+-- Blob Migration V2: Master procedure (script-driven, resumable)
+-- Runs migration for a single @TableName using scripts from BlobMigrationStepScript
+-- and BlobMigrationQueuePopulationScript; config from BlobMigrationTableConfig.
+--
+-- Placeholders in scripts: [SourceTableFull], [TargetTableFull], [MetadataTableFull],
+-- [MetadataIdColumn], [MaxDOP] (Step 1 only). Replaced at runtime from config + params.
+--
+-- Example:
+--   New run:   DECLARE @R UNIQUEIDENTIFIER; EXEC dbo.usp_BlobMigration_Run_V2 @BatchSize=500, @MaxDOP=2, @RunId=@R OUTPUT; SELECT @R AS RunId;
+--   Resume:    EXEC dbo.usp_BlobMigration_Run_V2 @RunId='<run-id>';
+--   Other table: EXEC dbo.usp_BlobMigration_Run_V2 @TableName=N'Gwent_LA_FileTable.dbo.ClientAttachment', @RunId=@R OUTPUT;
 -- =============================================================================
-
-
--- Example usage (this proc targets ReferralAttachment; TableName default = Gwent_LA_FileTable.dbo.ReferralAttachment):
--- New run:     DECLARE @R UNIQUEIDENTIFIER; EXEC dbo.usp_BlobMigration_Run @BatchSize=500, @MaxDOP=2, @RunId=@R OUTPUT; SELECT @R AS RunId;
--- Resume:      EXEC dbo.usp_BlobMigration_Run @RunId='<run-id>';
--- Reset+run:   EXEC dbo.usp_BlobMigration_Run @RunId='<run-id>', @Reset=1;
--- Other table: EXEC dbo.usp_BlobMigration_Run @TableName=N'Gwent_LA_FileTable.dbo.OtherTable', ... (use table-specific proc copy)
 
 USE Gwent_LA_FileTable;
 GO
-/****** Object:  StoredProcedure [dbo].[usp_BlobMigration_Run]    Script Date: 28/01/2026 08:36:25 ******/
-SET ANSI_NULLS ON
+
+SET ANSI_NULLS ON;
 GO
-SET QUOTED_IDENTIFIER ON
+SET QUOTED_IDENTIFIER ON;
 GO
 
-CREATE OR ALTER PROCEDURE [dbo].[usp_BlobMigration_Run]
+CREATE OR ALTER PROCEDURE [dbo].[usp_BlobMigration_Run_V2]
     @BatchSize INT              = 500,
     @MaxDOP    TINYINT          = 2,
     @Reset     BIT              = 0,
@@ -28,17 +30,39 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    DECLARE @RunStartedAt      DATETIME2(7);
-    DECLARE @CurrentStep       TINYINT = 0;
-    DECLARE @BatchNumber       INT = 0;
-    DECLARE @RowsInserted      INT;
-    DECLARE @TotalRowsInserted INT = 0;
-    DECLARE @BatchStartedAt    DATETIME2(7);
-    DECLARE @BatchCompletedAt  DATETIME2(7);
-    DECLARE @Sql               NVARCHAR(MAX);
-    DECLARE @ExcludedStreamId  UNIQUEIDENTIFIER = '7F8D53EC-B98C-F011-B86B-005056A2DD37';
+    DECLARE @RunStartedAt       DATETIME2(7);
+    DECLARE @CurrentStep        TINYINT = 0;
+    DECLARE @BatchNumber        INT = 0;
+    DECLARE @RowsInserted       INT;
+    DECLARE @TotalRowsInserted  INT = 0;
+    DECLARE @BatchStartedAt     DATETIME2(7);
+    DECLARE @BatchCompletedAt   DATETIME2(7);
+    DECLARE @Sql                NVARCHAR(MAX);
+    DECLARE @ExcludedStreamId   UNIQUEIDENTIFIER = '7F8D53EC-B98C-F011-B86B-005056A2DD37';
+
+    -- Config (loaded once for this @TableName)
+    DECLARE @SourceTableFull    NVARCHAR(389);
+    DECLARE @TargetTableFull    NVARCHAR(389);
+    DECLARE @MetadataTableFull NVARCHAR(389);
+    DECLARE @MetadataIdColumn   NVARCHAR(128);
 
     BEGIN TRY
+        -- ---------------------------------------------------------------------
+        -- Validate @TableName: config must exist and be active
+        -- ---------------------------------------------------------------------
+        SELECT @SourceTableFull    = c.SourceDatabase    + N'.' + c.SourceSchema    + N'.' + c.SourceTable,
+               @TargetTableFull    = c.TargetDatabase    + N'.' + c.TargetSchema    + N'.' + c.TargetTable,
+               @MetadataTableFull  = c.MetadataDatabase + N'.' + c.MetadataSchema   + N'.' + c.MetadataTable,
+               @MetadataIdColumn   = c.MetadataIdColumn
+        FROM dbo.BlobMigrationTableConfig c
+        WHERE c.TableName = @TableName AND c.IsActive = 1;
+
+        IF @SourceTableFull IS NULL
+        BEGIN
+            RAISERROR(N'TableName ''%s'' not found in BlobMigrationTableConfig or IsActive = 0.', 16, 1, @TableName);
+            RETURN;
+        END
+
         -- ---------------------------------------------------------------------
         -- Resolve run: new vs resume
         -- ---------------------------------------------------------------------
@@ -57,7 +81,7 @@ BEGIN
         END
 
         -- ---------------------------------------------------------------------
-        -- Optional reset: clear progress and queue for this run
+        -- Optional reset: clear progress and queue for this run + table
         -- ---------------------------------------------------------------------
         IF @Reset = 1
         BEGIN
@@ -66,47 +90,46 @@ BEGIN
         END
 
         -- ---------------------------------------------------------------------
-        -- Step 1: Roots (parent_path_locator IS NULL)
+        -- Step 1: Roots (script from BlobMigrationStepScript; [MaxDOP] replaced)
         -- ---------------------------------------------------------------------
         IF NOT EXISTS (SELECT 1 FROM dbo.BlobMigrationProgress
                        WHERE RunId = @RunId AND TableName = @TableName AND Step = 1 AND Status = 'Completed')
         BEGIN
-            SET @CurrentStep       = 1;
-            SET @BatchNumber       = 0;
-            SET @TotalRowsInserted = 0;
+            SET @CurrentStep = 1;
+            SET @BatchNumber = COALESCE((
+                SELECT MAX(BatchNumber)
+                FROM dbo.BlobMigrationProgress
+                WHERE RunId = @RunId AND TableName = @TableName AND Step = 1 AND Status <> 'Completed'
+            ), 0);
+            SET @TotalRowsInserted = COALESCE((
+                SELECT MAX(TotalRowsInserted)
+                FROM dbo.BlobMigrationProgress
+                WHERE RunId = @RunId AND TableName = @TableName AND Step = 1 AND Status <> 'Completed'
+            ), 0);
 
             WHILE 1 = 1
             BEGIN
                 SET @BatchNumber     = @BatchNumber + 1;
                 SET @BatchStartedAt  = SYSDATETIME();
 
-                SET @Sql = N'
-INSERT TOP (@BatchSize) INTO Gwent_LA_FileTable.dbo.ReferralAttachment
-    ([stream_id],[file_stream],[name],[path_locator],[creation_time],[last_write_time],
-     [last_access_time],[is_directory],[is_offline],[is_hidden],[is_readonly],[is_archive],[is_system],[is_temporary])
-SELECT RAFT.[stream_id], RAFT.[file_stream], RAFT.[name], RAFT.[path_locator],
-       RAFT.[creation_time], RAFT.[last_write_time], RAFT.[last_access_time],
-       RAFT.[is_directory], RAFT.[is_offline], RAFT.[is_hidden], RAFT.[is_readonly],
-       RAFT.[is_archive], RAFT.[is_system], RAFT.[is_temporary]
-FROM AdvancedRBSBlob_WCCIS.dbo.ReferralAttachment RAFT WITH (NOLOCK)
-INNER JOIN AdvancedRBS_MetaData.dbo.cw_referralattachmentBase RAM WITH (NOLOCK)
-    ON RAM.cw_referralattachmentId = RAFT.stream_id
-INNER JOIN Gwent_LA_FileTable.dbo.LA_BU ON businessunit = RAM.OwningBusinessUnit
-LEFT JOIN Gwent_LA_FileTable.dbo.ReferralAttachment LRA ON LRA.stream_id = RAFT.stream_id
-WHERE RAFT.parent_path_locator IS NULL
-  AND LRA.stream_id IS NULL
-  AND RAFT.stream_id <> @ExcludedStreamId
-ORDER BY RAFT.stream_id
-OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
-';
+                SELECT @Sql = ScriptBody
+                FROM dbo.BlobMigrationStepScript
+                WHERE StepNumber = 1 AND ScriptKind = N'BatchInsert';
+
+                SET @Sql = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@Sql,
+                    N'[SourceTableFull]',    @SourceTableFull),
+                    N'[TargetTableFull]',   @TargetTableFull),
+                    N'[MetadataTableFull]', @MetadataTableFull),
+                    N'[MetadataIdColumn]',  @MetadataIdColumn),
+                    N'[MaxDOP]',            CAST(@MaxDOP AS NVARCHAR(10)));
 
                 EXEC sp_executesql @Sql,
                     N'@BatchSize INT, @ExcludedStreamId UNIQUEIDENTIFIER',
                     @BatchSize, @ExcludedStreamId;
 
-                SET @RowsInserted    = @@ROWCOUNT;
-                SET @TotalRowsInserted = @TotalRowsInserted + @RowsInserted;
-                SET @BatchCompletedAt = SYSDATETIME();
+                SET @RowsInserted       = @@ROWCOUNT;
+                SET @TotalRowsInserted  = @TotalRowsInserted + @RowsInserted;
+                SET @BatchCompletedAt   = SYSDATETIME();
 
                 INSERT INTO dbo.BlobMigrationProgress
                     (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
@@ -128,37 +151,40 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
         END
 
         -- ---------------------------------------------------------------------
-        -- Step 2: Missing parents (queue + batch, always MAXDOP 1)
+        -- Step 2: Missing parents (queue from BlobMigrationQueuePopulationScript, then batch from StepScript)
         -- ---------------------------------------------------------------------
         IF NOT EXISTS (SELECT 1 FROM dbo.BlobMigrationProgress
                        WHERE RunId = @RunId AND TableName = @TableName AND Step = 2 AND Status = 'Completed')
         BEGIN
-            SET @CurrentStep       = 2;
-            SET @BatchNumber       = 0;
-            SET @TotalRowsInserted = 0;
+            SET @CurrentStep = 2;
+            SET @BatchNumber = COALESCE((
+                SELECT MAX(BatchNumber)
+                FROM dbo.BlobMigrationProgress
+                WHERE RunId = @RunId AND TableName = @TableName AND Step = 2 AND Status <> 'Completed'
+            ), 0);
+            SET @TotalRowsInserted = COALESCE((
+                SELECT MAX(TotalRowsInserted)
+                FROM dbo.BlobMigrationProgress
+                WHERE RunId = @RunId AND TableName = @TableName AND Step = 2 AND Status <> 'Completed'
+            ), 0);
 
-            -- Populate queue if empty (first time or after reset)
+            -- Populate queue if empty (script from BlobMigrationQueuePopulationScript)
             IF NOT EXISTS (SELECT 1 FROM dbo.BlobMigration_MissingParentsQueue
                            WHERE RunId = @RunId AND TableName = @TableName)
             BEGIN
-                INSERT INTO dbo.BlobMigration_MissingParentsQueue (RunId, TableName, stream_id, Processed, CreatedAt)
-                SELECT @RunId, @TableName, Par.stream_id, 0, SYSDATETIME()
-                FROM (
-                    SELECT DISTINCT Par.stream_id
-                    FROM AdvancedRBSBlob_WCCIS.dbo.ReferralAttachment RAFT WITH (NOLOCK)
-                    INNER JOIN AdvancedRBS_MetaData.dbo.cw_referralattachmentBase RAM WITH (NOLOCK)
-                        ON RAM.cw_referralattachmentId = RAFT.stream_id
-                    INNER JOIN Gwent_LA_FileTable.dbo.LA_BU ON businessunit = RAM.OwningBusinessUnit
-                    INNER JOIN AdvancedRBSBlob_WCCIS.dbo.ReferralAttachment Par
-                        ON Par.path_locator = RAFT.parent_path_locator
-                    WHERE RAFT.parent_path_locator IS NOT NULL
-                      AND RAFT.stream_id <> @ExcludedStreamId
-                ) Par
-                WHERE Par.stream_id <> @ExcludedStreamId
-                  AND NOT EXISTS (
-                      SELECT 1 FROM Gwent_LA_FileTable.dbo.ReferralAttachment T
-                      WHERE T.stream_id = Par.stream_id
-                  );
+                SELECT @Sql = ScriptBody
+                FROM dbo.BlobMigrationQueuePopulationScript
+                WHERE TableName = @TableName;
+
+                SET @Sql = REPLACE(REPLACE(REPLACE(REPLACE(@Sql,
+                    N'[SourceTableFull]',    @SourceTableFull),
+                    N'[TargetTableFull]',   @TargetTableFull),
+                    N'[MetadataTableFull]', @MetadataTableFull),
+                    N'[MetadataIdColumn]',  @MetadataIdColumn);
+
+                EXEC sp_executesql @Sql,
+                    N'@RunId UNIQUEIDENTIFIER, @TableName NVARCHAR(259), @ExcludedStreamId UNIQUEIDENTIFIER',
+                    @RunId, @TableName, @ExcludedStreamId;
             END
 
             WHILE 1 = 1
@@ -181,20 +207,19 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
                 SET @BatchNumber    = @BatchNumber + 1;
                 SET @BatchStartedAt = SYSDATETIME();
 
-                INSERT INTO Gwent_LA_FileTable.dbo.ReferralAttachment
-                    ([stream_id],[file_stream],[name],[path_locator],[creation_time],[last_write_time],
-                     [last_access_time],[is_directory],[is_offline],[is_hidden],[is_readonly],[is_archive],[is_system],[is_temporary])
-                SELECT RAFT.[stream_id], RAFT.[file_stream], RAFT.[name], RAFT.[path_locator],
-                       RAFT.[creation_time], RAFT.[last_write_time], RAFT.[last_access_time],
-                       RAFT.[is_directory], RAFT.[is_offline], RAFT.[is_hidden], RAFT.[is_readonly],
-                       RAFT.[is_archive], RAFT.[is_system], RAFT.[is_temporary]
-                FROM AdvancedRBSBlob_WCCIS.dbo.ReferralAttachment RAFT WITH (NOLOCK)
-                INNER JOIN #Batch B ON B.stream_id = RAFT.stream_id
-                OPTION (MAXDOP 1);
+                SELECT @Sql = ScriptBody
+                FROM dbo.BlobMigrationStepScript
+                WHERE StepNumber = 2 AND ScriptKind = N'BatchInsert';
 
-                SET @RowsInserted     = @@ROWCOUNT;
-                SET @TotalRowsInserted = @TotalRowsInserted + @RowsInserted;
-                SET @BatchCompletedAt = SYSDATETIME();
+                SET @Sql = REPLACE(REPLACE(@Sql,
+                    N'[SourceTableFull]',  @SourceTableFull),
+                    N'[TargetTableFull]',  @TargetTableFull);
+
+                EXEC sp_executesql @Sql;
+
+                SET @RowsInserted       = @@ROWCOUNT;
+                SET @TotalRowsInserted  = @TotalRowsInserted + @RowsInserted;
+                SET @BatchCompletedAt   = SYSDATETIME();
 
                 UPDATE dbo.BlobMigration_MissingParentsQueue
                 SET Processed = 1
@@ -219,47 +244,45 @@ OPTION (MAXDOP ' + CAST(@MaxDOP AS NVARCHAR(10)) + N');
         END
 
         -- ---------------------------------------------------------------------
-        -- Step 3: Children (parent_path_locator IS NOT NULL)
+        -- Step 3: Children (script from BlobMigrationStepScript; MAXDOP 1 in template)
         -- ---------------------------------------------------------------------
         IF NOT EXISTS (SELECT 1 FROM dbo.BlobMigrationProgress
                        WHERE RunId = @RunId AND TableName = @TableName AND Step = 3 AND Status = 'Completed')
         BEGIN
-            SET @CurrentStep       = 3;
-            SET @BatchNumber       = 0;
-            SET @TotalRowsInserted = 0;
+            SET @CurrentStep = 3;
+            SET @BatchNumber = COALESCE((
+                SELECT MAX(BatchNumber)
+                FROM dbo.BlobMigrationProgress
+                WHERE RunId = @RunId AND TableName = @TableName AND Step = 3 AND Status <> 'Completed'
+            ), 0);
+            SET @TotalRowsInserted = COALESCE((
+                SELECT MAX(TotalRowsInserted)
+                FROM dbo.BlobMigrationProgress
+                WHERE RunId = @RunId AND TableName = @TableName AND Step = 3 AND Status <> 'Completed'
+            ), 0);
 
             WHILE 1 = 1
             BEGIN
                 SET @BatchNumber     = @BatchNumber + 1;
                 SET @BatchStartedAt  = SYSDATETIME();
 
-                SET @Sql = N'
-INSERT TOP (@BatchSize) INTO Gwent_LA_FileTable.dbo.ReferralAttachment
-    ([stream_id],[file_stream],[name],[path_locator],[creation_time],[last_write_time],
-     [last_access_time],[is_directory],[is_offline],[is_hidden],[is_readonly],[is_archive],[is_system],[is_temporary])
-SELECT RAFT.[stream_id], RAFT.[file_stream], RAFT.[name], RAFT.[path_locator],
-       RAFT.[creation_time], RAFT.[last_write_time], RAFT.[last_access_time],
-       RAFT.[is_directory], RAFT.[is_offline], RAFT.[is_hidden], RAFT.[is_readonly],
-       RAFT.[is_archive], RAFT.[is_system], RAFT.[is_temporary]
-FROM AdvancedRBSBlob_WCCIS.dbo.ReferralAttachment RAFT WITH (NOLOCK)
-INNER JOIN AdvancedRBS_MetaData.dbo.cw_referralattachmentBase RAM WITH (NOLOCK)
-    ON RAM.cw_referralattachmentId = RAFT.stream_id
-INNER JOIN Gwent_LA_FileTable.dbo.LA_BU ON businessunit = RAM.OwningBusinessUnit
-LEFT JOIN Gwent_LA_FileTable.dbo.ReferralAttachment LRA ON LRA.stream_id = RAFT.stream_id
-WHERE RAFT.parent_path_locator IS NOT NULL
-  AND LRA.stream_id IS NULL
-  AND RAFT.stream_id <> @ExcludedStreamId
-ORDER BY RAFT.stream_id
-OPTION (MAXDOP 1);
-';
---MAXDOP 1 Set here because of a parallelism issue with constraints on the table
+                SELECT @Sql = ScriptBody
+                FROM dbo.BlobMigrationStepScript
+                WHERE StepNumber = 3 AND ScriptKind = N'BatchInsert';
+
+                SET @Sql = REPLACE(REPLACE(REPLACE(REPLACE(@Sql,
+                    N'[SourceTableFull]',    @SourceTableFull),
+                    N'[TargetTableFull]',   @TargetTableFull),
+                    N'[MetadataTableFull]', @MetadataTableFull),
+                    N'[MetadataIdColumn]',  @MetadataIdColumn);
+
                 EXEC sp_executesql @Sql,
                     N'@BatchSize INT, @ExcludedStreamId UNIQUEIDENTIFIER',
                     @BatchSize, @ExcludedStreamId;
 
-                SET @RowsInserted     = @@ROWCOUNT;
-                SET @TotalRowsInserted = @TotalRowsInserted + @RowsInserted;
-                SET @BatchCompletedAt = SYSDATETIME();
+                SET @RowsInserted       = @@ROWCOUNT;
+                SET @TotalRowsInserted  = @TotalRowsInserted + @RowsInserted;
+                SET @BatchCompletedAt   = SYSDATETIME();
 
                 INSERT INTO dbo.BlobMigrationProgress
                     (RunId, TableName, RunStartedAt, Step, BatchNumber, RowsInserted, TotalRowsInserted,
@@ -296,3 +319,4 @@ OPTION (MAXDOP 1);
         THROW;
     END CATCH
 END;
+GO
