@@ -14,7 +14,7 @@ This document provides practical usage guidelines, FAQ, backup/transfer procedur
    - Run `05_BlobDeltaJobs_Engine.sql` – deploys the engine procedures.
 
 2. **Verify configuration** in `BlobDeltaTableConfig`:
-   - Tables: `ReferralAttachment`, `ClientAttachment` (or others you’ve added).
+   - Tables and databases (e.g. `ReferralAttachment`, `ClientAttachment` in `Gwent_LA_FileTable`—actual values depend on your setup).
    - Confirm `SafetyBufferMinutes` (default 240).
    - Confirm source/target/metadata database names match your environment.
 
@@ -26,11 +26,11 @@ This document provides practical usage guidelines, FAQ, backup/transfer procedur
 | Scenario | Command |
 |----------|---------|
 | **All tables, all BUs (typical scheduled run)** | `EXEC dbo.usp_BlobDelta_RunOperator @Mode = N'AllTables', @TableName = NULL, @BatchSize = 500, @MaxDOP = 2, @BusinessUnitId = NULL` |
-| **Single table (manual catch-up / testing)** | `EXEC dbo.usp_BlobDelta_RunOperator @Mode = N'SingleTable', @TableName = N'Gwent_LA_FileTable.dbo.ReferralAttachment', @BatchSize = 500, @MaxDOP = 2, @BusinessUnitId = NULL` |
+| **Single table (manual catch-up / testing)** | `EXEC dbo.usp_BlobDelta_RunOperator @Mode = N'SingleTable', @TableName = N'<TargetDB>.dbo.<TableName>', @BatchSize = 500, @MaxDOP = 2, @BusinessUnitId = NULL` (e.g. `Gwent_LA_FileTable.dbo.ReferralAttachment`) |
 | **Specific business unit only** | `EXEC dbo.usp_BlobDelta_RunOperator @Mode = N'AllTables', @TableName = NULL, @BatchSize = 500, @MaxDOP = 2, @BusinessUnitId = '<GUID>'` |
 
 - Always run from the `BlobDeltaJobs` database.
-- The engine populates the **target** tables (e.g. `Gwent_LA_FileTable.dbo.ReferralAttachment`, `ClientAttachment`) with new and updated blob records based on `[ModifiedOn]`.
+- The engine populates the **target** tables defined in `BlobDeltaTableConfig` (for example, `Gwent_LA_FileTable.dbo.ReferralAttachment` and `ClientAttachment`—actual tables depend on your config) with new and updated blob records based on `[ModifiedOn]`.
 
 ---
 
@@ -53,7 +53,7 @@ A: High-watermarks are only advanced when all three steps (Roots, Missing Parent
 A: The safety buffer overlaps windows, and frequently updated records may appear in consecutive runs. This is intentional. Consumers should use “latest by `ModifiedOn`” semantics: if a `stream_id` exists in multiple deltas, keep the row with the latest `ModifiedOn`.
 
 **Q: How are deletions handled?**  
-A: Deletions are currently out of scope. `BlobDeltaDeletionLog` exists for future use but is not populated by the engine. If your supplier needs to reflect deletes, this will need to be added later.
+A: Deletions are not managed at present. The delta pipeline does not propagate deletes.
 
 **Q: What is the safety buffer and should I change it?**  
 A: The default 4-hour buffer reduces the risk of missing late writes or clock drift. Adjust `SafetyBufferMinutes` in `BlobDeltaTableConfig` only if you have a strong reason (e.g. very large buffer for cross-timezone issues).
@@ -102,27 +102,19 @@ ORDER BY TableName;
 
 ## 4. Backup and Transfer to Supplier
 
-The delta engine writes to **target** tables in the FileTable database (e.g. `Gwent_LA_FileTable.dbo.ReferralAttachment`, `Gwent_LA_FileTable.dbo.ClientAttachment`). These are the tables that must be backed up and transferred to the supplier.
+The delta engine writes to **target** tables in FileTable databases. The system runs across **multiple databases**; each table in `BlobDeltaTableConfig` defines its own source, target, and metadata databases. For example, `Gwent_LA_FileTable.dbo.ReferralAttachment` and `Gwent_LA_FileTable.dbo.ClientAttachment` are illustrative—your actual target databases and tables depend on your configuration.
 
-### 4.1 Backup Options
+### 4.1 Backup Format and Scope
 
-| Method | Description | Use case |
-|--------|-------------|----------|
-| **Native SQL backup** | `BACKUP DATABASE Gwent_LA_FileTable TO DISK = '...'` | Full DB backup; supplier restores entire DB. |
-| **Table-level backup** | Extract target tables only (e.g. `SELECT INTO`, BCP, or custom scripts). | Transfer only `ReferralAttachment` and `ClientAttachment`. |
-| **BACPAC** | Export via SSMS or `sqlpackage`. | For smaller datasets or non-native restore targets. |
+- **Format:** Native SQL Server `.BAK` (full backup).
+- **Scope:** Full database backup for each target FileTable database. Each configured target database should be backed up in full after the delta run.
+- **Content:** The backup includes full filestream data. Target tables such as `ClientAttachment` and `ReferralAttachment` are FileTable tables; their schema defines both metadata and filestream columns. A full database backup captures the complete FileTable data (metadata plus file content).
 
-> **Clarification needed:**  
-> - Which backup format does the supplier expect (`.bak`, `.bacpac`, CSV, etc.)?  
-> - Are you backing up only `ReferralAttachment` and `ClientAttachment`, or the whole `Gwent_LA_FileTable` database?  
-> - Does the backup include FileTable file data, or only metadata rows? (FileTable rows reference `stream_id`; file content may live in filestream storage.)
+### 4.2 Transfer and Notification
 
-### 4.2 Transfer via SFTP
-
-1. Place the backup file(s) in a staging location after each delta run (or on schedule).
-2. Use an SFTP client or script to upload to the supplier’s SFTP server.
-3. Apply file naming and retention rules (e.g. `BlobDelta_ReferralAttachment_YYYYMMDD.bak`).
-4. Notify the supplier that a new delta file is available (e.g. by email or shared manifest).
+1. Place the `.bak` file(s) in a staging location after each delta run (or on schedule).
+2. Transfer the backup file(s) to the supplier using the agreed secure file transfer process (e.g. SFTP).
+3. Notify the supplier that a new delta file is available via **email** or a **FreshDesk support ticket**.
 
 ---
 
@@ -132,11 +124,9 @@ The supplier receives delta backup files and must merge them into their existing
 
 ### 5.1 Receive and Restore
 
-1. **Receive** the backup file(s) via SFTP.
+1. **Receive** the backup file(s) via the agreed secure transfer process.
 2. **Validate** file integrity (checksum/hash if provided).
-3. **Restore** into a staging database or temporary tables:
-   - If full DB backup: restore `Gwent_LA_FileTable` to a staging DB.
-   - If table-level: restore/load into staging tables with the same schema as `ReferralAttachment` and `ClientAttachment`.
+3. **Restore** the full `.BAK` into a staging database. The schema (including FileTable definitions) is defined by the **originator of the data**; the supplier should restore into a compatible environment.
 
 ### 5.2 Merge into Target Tables
 
@@ -153,10 +143,10 @@ FOR each row R in the delta/staging table:
     INSERT R into target
 ```
 
-**Example T-SQL pattern (conceptual):**
+**Example T-SQL pattern (conceptual; table names depend on your config):**
 
 ```sql
--- Merge ReferralAttachment delta into target
+-- Merge delta into target (e.g. ReferralAttachment – adjust table names as per your schema)
 MERGE TargetDB.dbo.ReferralAttachment AS t
 USING StagingDB.dbo.ReferralAttachment AS s
 ON t.stream_id = s.stream_id
@@ -182,24 +172,54 @@ WHEN NOT MATCHED BY TARGET THEN
 2. **Log** the merge (e.g. rows inserted, updated, skipped) for audit.
 3. **Archive or delete** the staging data and backup file according to retention policy.
 
-### 5.4 Handling Deletes
+### 5.4 Deletions
 
-- Deletions are **not** currently included in the delta pipeline. If the supplier needs to reflect deletes, a separate mechanism (e.g. delete manifest, `BlobDeltaDeletionLog` export) would need to be defined and implemented.
+Deletions are not managed in the current design. The delta pipeline does not propagate deletes to the supplier.
 
 ---
 
-## 6. Items Needing Clarification
+## 6. Retention and Missed Delta Window
 
-| # | Topic | Question |
-|---|--------|----------|
-| 1 | **Backup format** | What backup format does the supplier expect: native `.bak`, BACPAC, CSV, or something else? |
-| 2 | **Scope of backup** | Are we backing up only `ReferralAttachment` and `ClientAttachment`, or the full `Gwent_LA_FileTable` database? |
-| 3 | **File content vs metadata** | FileTable rows reference filestream data. Does the supplier need the actual file content, or only metadata? If both, how is filestream data included in the backup? |
-| 4 | **Supplier schema** | Does the supplier’s target schema match exactly (same column names, types, constraints)? |
-| 5 | **Primary key for merge** | Confirm that `stream_id` is the correct key for duplicate detection, and that `ModifiedOn` is the correct tie-breaker for updates. |
-| 6 | **SFTP details** | Who provides SFTP credentials, path, and naming conventions? Is there a manifest or notification process when a new delta is ready? |
-| 7 | **Retention and frequency** | How many delta files should be kept, and how often are deltas produced (weekly, daily, etc.)? |
-| 8 | **Deletions** | Do supplier systems need to process deletions? If yes, a separate design for delete propagation will be needed. |
+### 6.1 Retention Policy
+
+Delta backup files are retained for **1 week**. If the supplier misses this window (e.g. did not request or process a delta in time), a new delta must be requested via the **FreshDesk** support system before the retention period expires.
+
+### 6.2 If the Retention Window Is Missed
+
+If the supplier submits a request after the 1-week retention window, a manual refresh is required. This involves adjusting the high-watermark so the next delta run will re-include the missed period.
+
+**Steps to refresh the delta (originator/admin):**
+
+1. **Raise and process a FreshDesk ticket** requesting a delta refresh for the missed period.
+2. **Identify the affected table(s)** and the date range to be re-included (e.g. the week that was missed).
+3. **Update the high-watermark** in `BlobDeltaHighWatermark` to a value *before* the start of the missed window. This causes the next run to treat that period as unprocessed.
+
+```sql
+USE BlobDeltaJobs;
+GO
+
+-- Example: set LastHighWaterModifiedOn to 1 Jan 2025 so the next run
+-- will pick up records from that date forward (within the window logic).
+-- Replace the TableName and date with the actual table and desired start date.
+UPDATE dbo.BlobDeltaHighWatermark
+SET LastHighWaterModifiedOn = '2025-01-01 00:00:00'
+WHERE TableName = N'Gwent_LA_FileTable.dbo.ReferralAttachment';  -- example; use your actual TableName
+```
+
+4. **Run the delta job** for the affected table(s):
+
+```sql
+EXEC dbo.usp_BlobDelta_RunOperator
+    @Mode          = N'SingleTable',
+    @TableName     = N'Gwent_LA_FileTable.dbo.ReferralAttachment',  -- or AllTables if multiple
+    @BatchSize     = 500,
+    @MaxDOP        = 2,
+    @BusinessUnitId = NULL;
+```
+
+5. **Create a fresh backup** and transfer it to the supplier, then notify them via email or FreshDesk.
+
+**Note:** Setting `LastHighWaterModifiedOn` to an earlier date means the next run will reprocess records from that point forward. The window logic applies: `WindowStart` will be derived from the updated watermark (minus the safety buffer), and `WindowEnd` will be the run start time minus the safety buffer. This effectively re-captures the missed period.
 
 ---
 
