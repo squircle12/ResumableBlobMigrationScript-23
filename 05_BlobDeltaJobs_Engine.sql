@@ -582,6 +582,187 @@ BEGIN
 END;
 GO
 
+-- -----------------------------------------------------------------------------
+-- Remove database: Delete all configuration and related data for a database
+-- -----------------------------------------------------------------------------
+
+CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_RemoveDatabase
+    @DatabaseName sysname,  -- Database name to remove (matches SourceDatabase, TargetDatabase, or MetadataDatabase)
+    @DryRun       bit = 0   -- If 1, only report what would be deleted without actually deleting
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @DeletedCounts TABLE
+    (
+        TableName          sysname,
+        RowsDeleted        int,
+        Description        nvarchar(256)
+    );
+
+    DECLARE @TableNamesToDelete TABLE (TableName sysname PRIMARY KEY);
+    DECLARE @RowsAffected int;
+    DECLARE @TotalRowsDeleted int = 0;
+
+    -- Find all TableName entries where the database appears in SourceDatabase, TargetDatabase, or MetadataDatabase
+    INSERT INTO @TableNamesToDelete (TableName)
+    SELECT DISTINCT c.TableName
+    FROM dbo.BlobDeltaTableConfig c
+    WHERE c.SourceDatabase = @DatabaseName
+       OR c.TargetDatabase = @DatabaseName
+       OR c.MetadataDatabase = @DatabaseName;
+
+    IF NOT EXISTS (SELECT 1 FROM @TableNamesToDelete)
+    BEGIN
+        PRINT N'No configuration found for database ' + QUOTENAME(@DatabaseName) + N'. Nothing to remove.';
+        RETURN;
+    END
+
+    IF @DryRun = 1
+    BEGIN
+        DECLARE @RunStepCount int;
+        DECLARE @QueueCount int;
+        DECLARE @DeletionLogCount int;
+        DECLARE @HighWatermarkCount int;
+        DECLARE @QueueScriptCount int;
+        DECLARE @TableConfigCount int;
+
+        PRINT N'DRY RUN MODE: Would delete configuration for database ' + QUOTENAME(@DatabaseName) + N':';
+        PRINT N'';
+        
+        SELECT 
+            c.TableName,
+            c.SourceDatabase,
+            c.TargetDatabase,
+            c.MetadataDatabase,
+            c.IsActive
+        FROM dbo.BlobDeltaTableConfig c
+        INNER JOIN @TableNamesToDelete t ON c.TableName = t.TableName
+        ORDER BY c.TableName;
+
+        SELECT 
+            COUNT(*) AS TablesAffected,
+            SUM(CASE WHEN c.SourceDatabase = @DatabaseName THEN 1 ELSE 0 END) AS AsSourceDatabase,
+            SUM(CASE WHEN c.TargetDatabase = @DatabaseName THEN 1 ELSE 0 END) AS AsTargetDatabase,
+            SUM(CASE WHEN c.MetadataDatabase = @DatabaseName THEN 1 ELSE 0 END) AS AsMetadataDatabase
+        FROM dbo.BlobDeltaTableConfig c
+        INNER JOIN @TableNamesToDelete t ON c.TableName = t.TableName;
+
+        -- Calculate counts into variables
+        SELECT @RunStepCount = COUNT(*)
+        FROM dbo.BlobDeltaRunStep s
+        INNER JOIN @TableNamesToDelete t ON s.TableName = t.TableName;
+
+        SELECT @QueueCount = COUNT(*)
+        FROM dbo.BlobDeltaMissingParentsQueue q
+        INNER JOIN @TableNamesToDelete t ON q.TableName = t.TableName;
+
+        SELECT @DeletionLogCount = COUNT(*)
+        FROM dbo.BlobDeltaDeletionLog d
+        INNER JOIN @TableNamesToDelete t ON d.TableName = t.TableName;
+
+        SELECT @HighWatermarkCount = COUNT(*)
+        FROM dbo.BlobDeltaHighWatermark h
+        INNER JOIN @TableNamesToDelete t ON h.TableName = t.TableName;
+
+        SELECT @QueueScriptCount = COUNT(*)
+        FROM dbo.BlobDeltaQueuePopulationScript s
+        INNER JOIN @TableNamesToDelete t ON s.TableName = t.TableName;
+
+        SELECT @TableConfigCount = COUNT(*)
+        FROM @TableNamesToDelete;
+
+        PRINT N'';
+        PRINT N'Related data that would be deleted:';
+        PRINT N'  - BlobDeltaRunStep rows: ' + CAST(@RunStepCount AS nvarchar(20));
+        PRINT N'  - BlobDeltaMissingParentsQueue rows: ' + CAST(@QueueCount AS nvarchar(20));
+        PRINT N'  - BlobDeltaDeletionLog rows: ' + CAST(@DeletionLogCount AS nvarchar(20));
+        PRINT N'  - BlobDeltaHighWatermark rows: ' + CAST(@HighWatermarkCount AS nvarchar(20));
+        PRINT N'  - BlobDeltaQueuePopulationScript rows: ' + CAST(@QueueScriptCount AS nvarchar(20));
+        PRINT N'  - BlobDeltaTableConfig rows: ' + CAST(@TableConfigCount AS nvarchar(20));
+        RETURN;
+    END
+
+    BEGIN TRANSACTION;
+
+    BEGIN TRY
+        -- 1. Delete from BlobDeltaRunStep (references RunId, but has TableName column)
+        DELETE s
+        FROM dbo.BlobDeltaRunStep s
+        INNER JOIN @TableNamesToDelete t ON s.TableName = t.TableName;
+        SET @RowsAffected = @@ROWCOUNT;
+        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaRunStep', @RowsAffected, N'Run step records');
+        SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
+
+        -- 2. Delete from BlobDeltaMissingParentsQueue
+        DELETE q
+        FROM dbo.BlobDeltaMissingParentsQueue q
+        INNER JOIN @TableNamesToDelete t ON q.TableName = t.TableName;
+        SET @RowsAffected = @@ROWCOUNT;
+        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaMissingParentsQueue', @RowsAffected, N'Missing parents queue entries');
+        SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
+
+        -- 3. Delete from BlobDeltaDeletionLog
+        DELETE d
+        FROM dbo.BlobDeltaDeletionLog d
+        INNER JOIN @TableNamesToDelete t ON d.TableName = t.TableName;
+        SET @RowsAffected = @@ROWCOUNT;
+        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaDeletionLog', @RowsAffected, N'Deletion log entries');
+        SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
+
+        -- 4. Delete from BlobDeltaQueuePopulationScript (TableName is PK)
+        DELETE s
+        FROM dbo.BlobDeltaQueuePopulationScript s
+        INNER JOIN @TableNamesToDelete t ON s.TableName = t.TableName;
+        SET @RowsAffected = @@ROWCOUNT;
+        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaQueuePopulationScript', @RowsAffected, N'Queue population scripts');
+        SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
+
+        -- 5. Delete from BlobDeltaHighWatermark (TableName is PK, references BlobDeltaTableConfig)
+        DELETE h
+        FROM dbo.BlobDeltaHighWatermark h
+        INNER JOIN @TableNamesToDelete t ON h.TableName = t.TableName;
+        SET @RowsAffected = @@ROWCOUNT;
+        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaHighWatermark', @RowsAffected, N'High watermark records');
+        SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
+
+        -- 6. Delete from BlobDeltaTableConfig (TableName is PK) - last, as other tables reference it
+        DELETE c
+        FROM dbo.BlobDeltaTableConfig c
+        INNER JOIN @TableNamesToDelete t ON c.TableName = t.TableName;
+        SET @RowsAffected = @@ROWCOUNT;
+        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaTableConfig', @RowsAffected, N'Table configuration records');
+        SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
+
+        COMMIT TRANSACTION;
+
+        PRINT N'Successfully removed database ' + QUOTENAME(@DatabaseName) + N' from BlobDeltaJobs configuration.';
+        PRINT N'Total rows deleted: ' + CAST(@TotalRowsDeleted AS nvarchar(20));
+        PRINT N'';
+        PRINT N'Breakdown by table:';
+        
+        SELECT 
+            TableName AS [Table],
+            RowsDeleted AS [Rows Deleted],
+            Description
+        FROM @DeletedCounts
+        WHERE RowsDeleted > 0
+        ORDER BY TableName;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+
+        DECLARE @ErrMsg nvarchar(max) = ERROR_MESSAGE();
+        DECLARE @ErrSeverity int = ERROR_SEVERITY();
+        DECLARE @ErrState int = ERROR_STATE();
+
+        PRINT N'Error removing database ' + QUOTENAME(@DatabaseName) + N': ' + @ErrMsg;
+        THROW;
+    END CATCH
+END;
+GO
+
 PRINT N'BlobDeltaJobs engine and operator wrapper created/updated successfully.';
 GO
 
