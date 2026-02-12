@@ -21,6 +21,26 @@ SET QUOTED_IDENTIFIER ON;
 GO
 
 -- -----------------------------------------------------------------------------
+-- Configuration defaults (adjust and rerun to seed for other databases)
+-- -----------------------------------------------------------------------------
+DECLARE @FileTableDatabase sysname = N'Gwent_LA_FileTable';   -- Target FileTable DB (e.g. per BU/tenant)
+DECLARE @FileTableSchema   sysname = N'dbo';
+
+DECLARE @ReferralTableName sysname = N'ReferralAttachment';
+DECLARE @ClientTableName   sysname = N'ClientAttachment';
+
+DECLARE @SourceDatabase    sysname = N'AdvancedRBSBlob_WCCIS';
+DECLARE @SourceSchema      sysname = N'dbo';
+
+DECLARE @MetadataDatabase           sysname = N'AdvancedRBS_MetaData';
+DECLARE @MetadataSchema             sysname = N'dbo';
+DECLARE @ReferralMetadataTable      sysname = N'cw_referralattachmentBase';
+DECLARE @ReferralMetadataIdColumn   sysname = N'cw_referralattachmentId';
+DECLARE @ClientMetadataTable        sysname = N'cw_clientattachmentBase';
+DECLARE @ClientMetadataIdColumn     sysname = N'cw_clientattachmentId';
+DECLARE @MetadataModifiedOnColumn   sysname = N'ModifiedOn';
+
+-- -----------------------------------------------------------------------------
 -- 1. Seed BlobDeltaTableConfig for known tables
 --    (ReferralAttachment and ClientAttachment initial examples)
 -- -----------------------------------------------------------------------------
@@ -28,24 +48,24 @@ GO
 MERGE dbo.BlobDeltaTableConfig AS t
 USING (
     SELECT
-        N'Gwent_LA_FileTable.dbo.ReferralAttachment' AS TableName,
-        N'AdvancedRBSBlob_WCCIS' AS SourceDatabase, N'dbo' AS SourceSchema, N'ReferralAttachment' AS SourceTable,
-        N'Gwent_LA_FileTable'     AS TargetDatabase, N'dbo' AS TargetSchema, N'ReferralAttachment' AS TargetTable,
-        N'AdvancedRBS_MetaData'   AS MetadataDatabase, N'dbo' AS MetadataSchema, N'cw_referralattachmentBase' AS MetadataTable,
-        N'cw_referralattachmentId' AS MetadataIdColumn,
-        N'ModifiedOn'             AS MetadataModifiedOnCol,
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ReferralTableName AS TableName,
+        @SourceDatabase          AS SourceDatabase,  @SourceSchema   AS SourceSchema,  @ReferralTableName  AS SourceTable,
+        @FileTableDatabase       AS TargetDatabase,  @FileTableSchema AS TargetSchema, @ReferralTableName  AS TargetTable,
+        @MetadataDatabase        AS MetadataDatabase, @MetadataSchema AS MetadataSchema, @ReferralMetadataTable AS MetadataTable,
+        @ReferralMetadataIdColumn AS MetadataIdColumn,
+        @MetadataModifiedOnColumn AS MetadataModifiedOnCol,
         CAST(240 AS INT)          AS SafetyBufferMinutes,
         CAST(1 AS BIT)            AS IncludeUpdatesInDelta,
         CAST(0 AS BIT)            AS IncludeDeletesInDelta,
         CAST(1 AS BIT)            AS IsActive
     UNION ALL
     SELECT
-        N'Gwent_LA_FileTable.dbo.ClientAttachment',
-        N'AdvancedRBSBlob_WCCIS', N'dbo', N'ClientAttachment',
-        N'Gwent_LA_FileTable',    N'dbo', N'ClientAttachment',
-        N'AdvancedRBS_MetaData',  N'dbo', N'cw_clientattachmentBase',
-        N'cw_clientattachmentId',
-        N'ModifiedOn',
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ClientTableName,
+        @SourceDatabase,  @SourceSchema,  @ClientTableName,
+        @FileTableDatabase, @FileTableSchema, @ClientTableName,
+        @MetadataDatabase, @MetadataSchema, @ClientMetadataTable,
+        @ClientMetadataIdColumn,
+        @MetadataModifiedOnColumn,
         CAST(240 AS INT),
         CAST(1 AS BIT),
         CAST(0 AS BIT),
@@ -151,7 +171,7 @@ SELECT
 FROM [SourceTableFull] RAFT WITH (NOLOCK)
 INNER JOIN [MetadataTableFull] RAM WITH (NOLOCK)
     ON RAM.[MetadataIdColumn] = RAFT.stream_id
-INNER JOIN Gwent_LA_FileTable.dbo.LA_BU BU WITH (NOLOCK)
+INNER JOIN [BusinessUnitTableFull] BU WITH (NOLOCK)
     ON BU.businessunit = RAM.OwningBusinessUnit
 LEFT JOIN [TargetTableFull] TGT WITH (NOLOCK)
     ON TGT.stream_id = RAFT.stream_id
@@ -194,7 +214,7 @@ SELECT
 FROM [SourceTableFull] RAFT WITH (NOLOCK)
 INNER JOIN [MetadataTableFull] RAM WITH (NOLOCK)
     ON RAM.[MetadataIdColumn] = RAFT.stream_id
-INNER JOIN Gwent_LA_FileTable.dbo.LA_BU BU WITH (NOLOCK)
+INNER JOIN [BusinessUnitTableFull] BU WITH (NOLOCK)
     ON BU.businessunit = RAM.OwningBusinessUnit
 LEFT JOIN [TargetTableFull] TGT WITH (NOLOCK)
     ON TGT.stream_id = RAFT.stream_id
@@ -329,7 +349,7 @@ SELECT
 FROM [SourceTableFull] RAFT WITH (NOLOCK)
 INNER JOIN [MetadataTableFull] RAM WITH (NOLOCK)
     ON RAM.[MetadataIdColumn] = RAFT.stream_id
-INNER JOIN Gwent_LA_FileTable.dbo.LA_BU BU WITH (NOLOCK)
+INNER JOIN [BusinessUnitTableFull] BU WITH (NOLOCK)
     ON BU.businessunit = RAM.OwningBusinessUnit
 LEFT JOIN [TargetTableFull] TGT WITH (NOLOCK)
     ON TGT.stream_id = RAFT.stream_id
@@ -372,7 +392,7 @@ SELECT
 FROM [SourceTableFull] RAFT WITH (NOLOCK)
 INNER JOIN [MetadataTableFull] RAM WITH (NOLOCK)
     ON RAM.[MetadataIdColumn] = RAFT.stream_id
-INNER JOIN Gwent_LA_FileTable.dbo.LA_BU BU WITH (NOLOCK)
+INNER JOIN [BusinessUnitTableFull] BU WITH (NOLOCK)
     ON BU.businessunit = RAM.OwningBusinessUnit
 LEFT JOIN [TargetTableFull] TGT WITH (NOLOCK)
     ON TGT.stream_id = RAFT.stream_id
@@ -407,7 +427,7 @@ FROM (
     FROM [SourceTableFull] RAFT WITH (NOLOCK)
     INNER JOIN [MetadataTableFull] RAM WITH (NOLOCK)
         ON RAM.[MetadataIdColumn] = RAFT.stream_id
-    INNER JOIN Gwent_LA_FileTable.dbo.LA_BU BU WITH (NOLOCK)
+    INNER JOIN [BusinessUnitTableFull] BU WITH (NOLOCK)
         ON BU.businessunit = RAM.OwningBusinessUnit
     INNER JOIN [SourceTableFull] Par WITH (NOLOCK)
         ON Par.path_locator = RAFT.parent_path_locator
@@ -434,9 +454,9 @@ WHERE Par.stream_id <> @ExcludedStreamId
 
 MERGE dbo.BlobDeltaQueuePopulationScript AS t
 USING (
-    SELECT N'Gwent_LA_FileTable.dbo.ReferralAttachment' AS TableName
-    UNION ALL
-    SELECT N'Gwent_LA_FileTable.dbo.ClientAttachment'
+    SELECT TableName
+    FROM dbo.BlobDeltaTableConfig
+    WHERE SourceTable IN (N'ReferralAttachment', N'ClientAttachment')
 ) AS s
 ON t.TableName = s.TableName
 WHEN NOT MATCHED BY TARGET THEN

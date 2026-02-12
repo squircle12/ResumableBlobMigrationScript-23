@@ -111,6 +111,7 @@ BEGIN
             @SourceTableFull          nvarchar(776),
             @TargetTableFull          nvarchar(776),
             @MetadataTableFull        nvarchar(776),
+            @BusinessUnitTableFull    nvarchar(776),
             @MetadataIdColumn         sysname,
             @MetadataModifiedOnColumn sysname,
             @SafetyBufferMinutes      int,
@@ -140,6 +141,11 @@ BEGIN
                 @MetadataIdColumn          = @MetadataIdColumn OUTPUT,
                 @MetadataModifiedOnColumn  = @MetadataModifiedOnColumn OUTPUT,
                 @SafetyBufferMinutes       = @SafetyBufferMinutes OUTPUT;
+
+            -- Derive the Business Unit lookup table (e.g. <TargetDB>.<Schema>.LA_BU) from the target table.
+            SET @BusinessUnitTableFull =
+                PARSENAME(@TargetTableFull, 3) + N'.' +
+                PARSENAME(@TargetTableFull, 2) + N'.LA_BU';
 
             IF @SafetyBufferMinutes IS NULL SET @SafetyBufferMinutes = 240;
 
@@ -199,15 +205,14 @@ BEGIN
                     FROM dbo.BlobDeltaStepScript
                     WHERE StepNumber = 1 AND ScriptKind = N'Roots';
 
-                    -- Replace placeholders with table/column names and MaxDOP.
-                    SET @Sql = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@Sql,
-                        N'[SourceTableFull]',          @SourceTableFull),
-                        N'[TargetTableFull]',          @TargetTableFull),
-                        N'[MetadataTableFull]',        @MetadataTableFull),
-                        N'[MetadataIdColumn]',         @MetadataIdColumn),
-                        N'[MetadataModifiedOnColumn]', @MetadataModifiedOnColumn);
-
-                    SET @Sql = REPLACE(@Sql, N'[MaxDOP]', CAST(@MaxDOP AS nvarchar(10)));
+                    -- Replace placeholders with table/column names, BU table, and MaxDOP.
+                    SET @Sql = REPLACE(@Sql, N'[SourceTableFull]',          @SourceTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[TargetTableFull]',          @TargetTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[MetadataTableFull]',        @MetadataTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[MetadataIdColumn]',         @MetadataIdColumn);
+                    SET @Sql = REPLACE(@Sql, N'[MetadataModifiedOnColumn]', @MetadataModifiedOnColumn);
+                    SET @Sql = REPLACE(@Sql, N'[BusinessUnitTableFull]',    @BusinessUnitTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[MaxDOP]',                   CAST(@MaxDOP AS nvarchar(10)));
 
                     EXEC sp_executesql @Sql,
                         N'@BatchSize int,
@@ -331,11 +336,9 @@ BEGIN
                     FROM dbo.BlobDeltaStepScript
                     WHERE StepNumber = 2 AND ScriptKind = N'MissingParentsBatch';
 
-                    SET @Sql = REPLACE(REPLACE(@Sql,
-                        N'[SourceTableFull]', @SourceTableFull),
-                        N'[TargetTableFull]', @TargetTableFull);
-
-                    SET @Sql = REPLACE(@Sql, N'[MaxDOP]', CAST(@MaxDOP AS nvarchar(10)));
+                    SET @Sql = REPLACE(@Sql, N'[SourceTableFull]', @SourceTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[TargetTableFull]', @TargetTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[MaxDOP]',          CAST(@MaxDOP AS nvarchar(10)));
 
                     EXEC sp_executesql @Sql,
                         N'@BatchSize int',
@@ -407,12 +410,12 @@ BEGIN
                     FROM dbo.BlobDeltaStepScript
                     WHERE StepNumber = 3 AND ScriptKind = N'Children';
 
-                    SET @Sql = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@Sql,
-                        N'[SourceTableFull]',          @SourceTableFull),
-                        N'[TargetTableFull]',          @TargetTableFull),
-                        N'[MetadataTableFull]',        @MetadataTableFull),
-                        N'[MetadataIdColumn]',         @MetadataIdColumn),
-                        N'[MetadataModifiedOnColumn]', @MetadataModifiedOnColumn);
+                    SET @Sql = REPLACE(@Sql, N'[SourceTableFull]',          @SourceTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[TargetTableFull]',          @TargetTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[MetadataTableFull]',        @MetadataTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[MetadataIdColumn]',         @MetadataIdColumn);
+                    SET @Sql = REPLACE(@Sql, N'[MetadataModifiedOnColumn]', @MetadataModifiedOnColumn);
+                    SET @Sql = REPLACE(@Sql, N'[BusinessUnitTableFull]',    @BusinessUnitTableFull);
 
                     -- Step 3 uses MAXDOP 1 in the template; no [MaxDOP] placeholder.
 
