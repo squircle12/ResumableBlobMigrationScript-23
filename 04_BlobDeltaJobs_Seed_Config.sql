@@ -413,6 +413,8 @@ GO
 -- 3. Queue population script (per-table, shared template for now)
 -- -----------------------------------------------------------------------------
 
+-- Queue PK is (RunId, TableName, stream_id). One parent can be referenced by children in
+-- multiple business units, so we must deduplicate on stream_id only (one queue row per parent).
 DECLARE @QueueScript nvarchar(max) = N'
 INSERT INTO dbo.BlobDeltaMissingParentsQueue (RunId, TableName, stream_id, BusinessUnit, Processed, CreatedAt)
 SELECT
@@ -423,7 +425,7 @@ SELECT
     0,
     SYSDATETIME()
 FROM (
-    SELECT DISTINCT Par.stream_id, BU.businessunit
+    SELECT Par.stream_id, MIN(BU.businessunit) AS businessunit
     FROM [SourceTableFull] RAFT WITH (NOLOCK)
     INNER JOIN [MetadataTableFull] RAM WITH (NOLOCK)
         ON RAM.[MetadataIdColumn] = RAFT.stream_id
@@ -436,6 +438,7 @@ FROM (
       AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
       AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
       AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
+    GROUP BY Par.stream_id
 ) Par
 WHERE Par.stream_id <> @ExcludedStreamId
   AND NOT EXISTS (
