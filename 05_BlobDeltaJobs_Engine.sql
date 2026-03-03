@@ -69,8 +69,8 @@ CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_Run
     @RunId        uniqueidentifier = NULL OUTPUT,
     @RunType      nvarchar(20)     = N'Delta',  -- 'Full','Delta','DryRun'
     @TableName    sysname          = NULL,      -- NULL = all active tables (or filtered by @TargetDatabase)
-    @BatchSize    int              = 500,
-    @MaxDOP       tinyint          = 2,
+    @BatchSize    int              = 5000,
+    @MaxDOP       tinyint          = 1,
     @Reset        bit              = 0,
     @DryRun       bit              = 0,         -- If 1, print dynamic SQL instead of executing it
     @BusinessUnitId uniqueidentifier = NULL,

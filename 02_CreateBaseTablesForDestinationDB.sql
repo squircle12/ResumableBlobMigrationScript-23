@@ -127,18 +127,25 @@ EXEC (@Sql);
 
 -------------------------------------------------------------------------------
 -- Step 3: Set FILESTREAM database options (DIRECTORY_NAME, NON_TRANSACTED_ACCESS)
--- This is required before creating FileTables.
+--         Force SINGLE_USER temporarily to avoid blocking
 -------------------------------------------------------------------------------
-SET @Sql = N'PRINT ''Setting FILESTREAM options (DIRECTORY_NAME, NON_TRANSACTED_ACCESS) for database ' + @TargetDatabase + N'...''; 
+SET @Sql = N'
+PRINT ''Switching database ' + QUOTENAME(@TargetDatabase) + N' to SINGLE_USER for FILESTREAM configuration...'';
+ALTER DATABASE ' + QUOTENAME(@TargetDatabase) + N' SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+
+PRINT ''Setting FILESTREAM options (DIRECTORY_NAME, NON_TRANSACTED_ACCESS) for database ' + @TargetDatabase + N'...'';
 ALTER DATABASE ' + QUOTENAME(@TargetDatabase) + N'
 SET FILESTREAM
 (
     DIRECTORY_NAME        = N''' + @FileTableDirectoryName + N''',
     NON_TRANSACTED_ACCESS = FULL
-);';
+);
+
+PRINT ''Switching database ' + QUOTENAME(@TargetDatabase) + N' back to MULTI_USER...'';
+ALTER DATABASE ' + QUOTENAME(@TargetDatabase) + N' SET MULTI_USER;
+';
 
 EXEC (@Sql);
-
 -------------------------------------------------------------------------------
 -- Step 4: Create the LA_BU lookup table if it does not already exist
 -------------------------------------------------------------------------------
