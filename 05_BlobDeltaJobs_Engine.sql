@@ -72,7 +72,6 @@ CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_Run
     @BatchSize    int              = 5000,
     @MaxDOP       tinyint          = 1,
     @DryRun       bit              = 0,         -- If 1, print dynamic SQL instead of executing it
-    @BusinessUnitId uniqueidentifier = NULL,
     @TargetDatabase sysname        = NULL      -- Optional: filter to tables where TargetDatabase matches
 AS
 BEGIN
@@ -369,8 +368,7 @@ BEGIN
                             + N' @BatchSize=' + CAST(@EffectiveBatchSize AS nvarchar(20))
                             + N', @ExcludedStreamId=' + CAST(@ExcludedStreamId AS nvarchar(50))
                             + N', @WindowStart=' + CAST(@WindowStart AS nvarchar(50))
-                            + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50))
-                            + N', @BusinessUnitId=' + ISNULL(CAST(@BusinessUnitId AS nvarchar(50)), N'NULL');
+                            + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50));
                         -- In dry run we only print the generated SQL once for this step.
                         BREAK;
                     END
@@ -379,13 +377,11 @@ BEGIN
                         N'@BatchSize int,
                           @ExcludedStreamId uniqueidentifier,
                           @WindowStart datetime2(7),
-                          @WindowEnd datetime2(7),
-                          @BusinessUnitId uniqueidentifier',
+                          @WindowEnd datetime2(7)',
                         @BatchSize      = @EffectiveBatchSize,
                         @ExcludedStreamId = @ExcludedStreamId,
                         @WindowStart    = @WindowStart,
-                        @WindowEnd      = @WindowEnd,
-                        @BusinessUnitId = @BusinessUnitId;
+                        @WindowEnd      = @WindowEnd;
 
                     SET @Rows = @@ROWCOUNT;
                     SET @TotalRows = @TotalRows + @Rows;
@@ -487,8 +483,7 @@ BEGIN
                             + N', @TableName=' + @T_TableName
                             + N', @ExcludedStreamId=' + CAST(@ExcludedStreamId AS nvarchar(50))
                             + N', @WindowStart=' + CAST(@WindowStart AS nvarchar(50))
-                            + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50))
-                            + N', @BusinessUnitId=' + ISNULL(CAST(@BusinessUnitId AS nvarchar(50)), N'NULL');
+                            + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50));
                     END
                     ELSE
                     BEGIN
@@ -497,14 +492,12 @@ BEGIN
                               @TableName sysname,
                               @ExcludedStreamId uniqueidentifier,
                               @WindowStart datetime2(7),
-                              @WindowEnd datetime2(7),
-                              @BusinessUnitId uniqueidentifier',
+                              @WindowEnd datetime2(7)',
                             @RunId          = @RunId,
                             @TableName      = @T_TableName,
                             @ExcludedStreamId = @ExcludedStreamId,
                             @WindowStart    = @WindowStart,
-                            @WindowEnd      = @WindowEnd,
-                            @BusinessUnitId = @BusinessUnitId;
+                            @WindowEnd      = @WindowEnd;
                     END
                     
                 END
@@ -651,8 +644,7 @@ BEGIN
                             + N' @BatchSize=' + CAST(@EffectiveBatchSize AS nvarchar(20))
                             + N', @ExcludedStreamId=' + CAST(@ExcludedStreamId AS nvarchar(50))
                             + N', @WindowStart=' + CAST(@WindowStart AS nvarchar(50))
-                            + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50))
-                            + N', @BusinessUnitId=' + ISNULL(CAST(@BusinessUnitId AS nvarchar(50)), N'NULL');
+                            + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50));
                         -- In dry run we only print the generated SQL once for this step.
                         BREAK;
                     END
@@ -661,13 +653,11 @@ BEGIN
                         N'@BatchSize int,
                           @ExcludedStreamId uniqueidentifier,
                           @WindowStart datetime2(7),
-                          @WindowEnd datetime2(7),
-                          @BusinessUnitId uniqueidentifier',
+                          @WindowEnd datetime2(7)',
                         @BatchSize      = @EffectiveBatchSize,
                         @ExcludedStreamId = @ExcludedStreamId,
                         @WindowStart    = @WindowStart,
-                        @WindowEnd      = @WindowEnd,
-                        @BusinessUnitId = @BusinessUnitId;
+                        @WindowEnd      = @WindowEnd;
 
                     SET @Rows = @@ROWCOUNT;
                     SET @TotalRows = @TotalRows + @Rows;
@@ -787,7 +777,6 @@ CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_RunOperator
     @BatchSize     int          = 500,
     @MaxDOP        tinyint      = 2,
     @DryRun        bit          = 0,             -- If 1, print dynamic SQL instead of executing it
-    @BusinessUnitId uniqueidentifier = NULL,
     @TargetDatabase sysname     = NULL           -- Optional: filter to tables where TargetDatabase matches (works with 'AllTables' mode)
 AS
 BEGIN
@@ -804,7 +793,6 @@ BEGIN
             @BatchSize      = @BatchSize,
             @MaxDOP         = @MaxDOP,
             @DryRun         = @DryRun,
-            @BusinessUnitId = @BusinessUnitId,
             @TargetDatabase = @TargetDatabase;
     END
     ELSE IF @Mode = N'SingleTable'
@@ -822,7 +810,6 @@ BEGIN
             @BatchSize      = @BatchSize,
             @MaxDOP         = @MaxDOP,
             @DryRun         = @DryRun,
-            @BusinessUnitId = @BusinessUnitId,
             @TargetDatabase = @TargetDatabase;
     END
     ELSE

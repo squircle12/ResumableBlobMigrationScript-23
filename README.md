@@ -83,7 +83,7 @@ This document describes the V3 **Blob Delta Jobs** project, which builds on the 
         - Computes `WindowStart` / `WindowEnd` from `BlobDeltaHighWatermark` + `SafetyBufferMinutes`.
         - Acquires a simple **lease** (`IsRunning`, `RunLeaseExpiresAt`) to prevent overlapping runs.
         - Executes Steps 1–3 using `BlobDeltaStepScript` and `BlobDeltaQueuePopulationScript`, passing:
-          - `@BatchSize`, `@ExcludedStreamId`, `@WindowStart`, `@WindowEnd`, `@BusinessUnitId`.
+          - `@BatchSize`, `@ExcludedStreamId`, `@WindowStart`, `@WindowEnd`.
         - Logs per-batch progress in `BlobDeltaRunStep`.
         - Advances `LastHighWaterModifiedOn` to `WindowEnd` and clears the lease on success.
       - On error:
@@ -94,7 +94,6 @@ This document describes the V3 **Blob Delta Jobs** project, which builds on the 
     - Thin, operator-friendly wrapper that supports:
       - `@Mode = 'AllTables'`: run deltas for all active tables.
       - `@Mode = 'SingleTable'`: run deltas for a specific `@TableName`.
-      - Optional `@BusinessUnitId` to scope to a single BU.
       - Returns the `RunId` for inspection.
 
 ---
@@ -129,8 +128,7 @@ EXEC dbo.usp_BlobDelta_RunOperator
     @Mode          = N'AllTables',
     @TableName     = NULL,
     @BatchSize     = 500,
-    @MaxDOP        = 2,
-    @BusinessUnitId = NULL;  -- all BUs
+    @MaxDOP        = 2;
 ```
 
 - This will:
@@ -151,32 +149,12 @@ EXEC dbo.usp_BlobDelta_RunOperator
     @Mode          = N'SingleTable',
     @TableName     = N'Gwent_LA_FileTable.dbo.ReferralAttachment',
     @BatchSize     = 500,
-    @MaxDOP        = 2,
-    @BusinessUnitId = NULL;  -- or a specific BU GUID
+    @MaxDOP        = 2;
 ```
 
 - Use this when:
   - Testing changes for one table.
   - Catching up a specific table without touching others.
-
-#### 4.4 Running for a specific BU
-
-```sql
-USE BlobDeltaJobs;
-GO
-
-DECLARE @RunId uniqueidentifier;
-DECLARE @BU uniqueidentifier = '<BUSINESS-UNIT-ID-HERE>';
-
-EXEC dbo.usp_BlobDelta_RunOperator
-    @Mode          = N'AllTables',
-    @TableName     = NULL,
-    @BatchSize     = 500,
-    @MaxDOP        = 2,
-    @BusinessUnitId = @BU;
-```
-
-- The underlying scripts will apply `@BusinessUnitId` when joining to `Gwent_LA_FileTable.dbo.LA_BU`.
 
 ---
 
