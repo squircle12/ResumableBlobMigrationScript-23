@@ -249,4 +249,628 @@ END;';
 
 EXEC (@Sql);
 
+-------------------------------------------------------------------------------
+-- Step 8: Create the ProviderAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ProviderAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ProviderAttachment]...'';
+    CREATE TABLE [dbo].[ProviderAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ProviderAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ProviderAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 9: Create the ReferralFormAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ReferralFormAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ReferralFormAttachment]...'';
+    CREATE TABLE [dbo].[ReferralFormAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ReferralFormAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ReferralFormAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 10: Create the AllergyAndReactionAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''AllergyAndReactionAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[AllergyAndReactionAttachment]...'';
+    CREATE TABLE [dbo].[AllergyAndReactionAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''AllergyAndReactionAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[AllergyAndReactionAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 11: Create the AssessmentPrintRecord FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''AssessmentPrintRecord''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[AssessmentPrintRecord]...'';
+    CREATE TABLE [dbo].[AssessmentPrintRecord] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''AssessmentPrintRecord'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[AssessmentPrintRecord] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 12: Create the ClientPortabilityAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ClientPortabilityAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ClientPortabilityAttachment]...'';
+    CREATE TABLE [dbo].[ClientPortabilityAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ClientPortabilityAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ClientPortabilityAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 13: Create the ClinicAppointmentAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ClinicAppointmentAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ClinicAppointmentAttachment]...'';
+    CREATE TABLE [dbo].[ClinicAppointmentAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ClinicAppointmentAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ClinicAppointmentAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 14: Create the ConsentToTreatmentAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ConsentToTreatmentAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ConsentToTreatmentAttachment]...'';
+    CREATE TABLE [dbo].[ConsentToTreatmentAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ConsentToTreatmentAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ConsentToTreatmentAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 15: Create the CourtDatesAndOutcomesAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''CourtDatesAndOutcomesAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[CourtDatesAndOutcomesAttachment]...'';
+    CREATE TABLE [dbo].[CourtDatesAndOutcomesAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''CourtDatesAndOutcomesAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[CourtDatesAndOutcomesAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 16: Create the FamilyFormAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''FamilyFormAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[FamilyFormAttachment]...'';
+    CREATE TABLE [dbo].[FamilyFormAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''FamilyFormAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[FamilyFormAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 17: Create the FamilyReferralAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''FamilyReferralAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[FamilyReferralAttachment]...'';
+    CREATE TABLE [dbo].[FamilyReferralAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''FamilyReferralAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[FamilyReferralAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 18: Create the Genogram FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''Genogram''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[Genogram]...'';
+    CREATE TABLE [dbo].[Genogram] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''Genogram'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[Genogram] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 19: Create the Letters FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''Letters''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[Letters]...'';
+    CREATE TABLE [dbo].[Letters] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''Letters'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[Letters] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 20: Create the MHALegalStatusAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''MHALegalStatusAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[MHALegalStatusAttachment]...'';
+    CREATE TABLE [dbo].[MHALegalStatusAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''MHALegalStatusAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[MHALegalStatusAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 21: Create the MHMFormAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''MHMFormAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[MHMFormAttachment]...'';
+    CREATE TABLE [dbo].[MHMFormAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''MHMFormAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[MHMFormAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 22: Create the PersonBodyMapAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''PersonBodyMapAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[PersonBodyMapAttachment]...'';
+    CREATE TABLE [dbo].[PersonBodyMapAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''PersonBodyMapAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[PersonBodyMapAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 23: Create the ProviderFormAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ProviderFormAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ProviderFormAttachment]...'';
+    CREATE TABLE [dbo].[ProviderFormAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ProviderFormAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ProviderFormAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 24: Create the RecordOfAppealAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''RecordOfAppealAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[RecordOfAppealAttachment]...'';
+    CREATE TABLE [dbo].[RecordOfAppealAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''RecordOfAppealAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[RecordOfAppealAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 25: Create the ReferralFormActivityAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ReferralFormActivityAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ReferralFormActivityAttachment]...'';
+    CREATE TABLE [dbo].[ReferralFormActivityAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ReferralFormActivityAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ReferralFormActivityAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 26: Create the ReferralFormHistory FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ReferralFormHistory''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ReferralFormHistory]...'';
+    CREATE TABLE [dbo].[ReferralFormHistory] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ReferralFormHistory'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ReferralFormHistory] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 27: Create the ReportsAndFormsActivityAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''ReportsAndFormsActivityAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[ReportsAndFormsActivityAttachment]...'';
+    CREATE TABLE [dbo].[ReportsAndFormsActivityAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''ReportsAndFormsActivityAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[ReportsAndFormsActivityAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 28: Create the SARDocument FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''SARDocument''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[SARDocument]...'';
+    CREATE TABLE [dbo].[SARDocument] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''SARDocument'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[SARDocument] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 29: Create the SARTemplate FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''SARTemplate''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[SARTemplate]...'';
+    CREATE TABLE [dbo].[SARTemplate] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''SARTemplate'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[SARTemplate] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 30: Create the SeclusionAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''SeclusionAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[SeclusionAttachment]...'';
+    CREATE TABLE [dbo].[SeclusionAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''SeclusionAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[SeclusionAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
+-- Step 31: Create the Section117EntitlementAttachment FILETABLE if it does not already exist
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''Section117EntitlementAttachment''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+BEGIN
+    PRINT ''Creating FILETABLE [dbo].[Section117EntitlementAttachment]...'';
+    CREATE TABLE [dbo].[Section117EntitlementAttachment] AS FILETABLE ON [PRIMARY] FILESTREAM_ON [FileStreamGroup]
+    WITH
+    (
+        FILETABLE_DIRECTORY = N''Section117EntitlementAttachment'',
+        FILETABLE_COLLATE_FILENAME = SQL_Latin1_General_CP1_CI_AS
+    );
+END
+ELSE
+BEGIN
+    PRINT ''FILETABLE [dbo].[Section117EntitlementAttachment] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
 PRINT 'Script completed successfully for database ' + QUOTENAME(@TargetDatabase) + '.';

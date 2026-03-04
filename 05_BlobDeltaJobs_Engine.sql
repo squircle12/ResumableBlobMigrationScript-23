@@ -71,7 +71,6 @@ CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_Run
     @TableName    sysname          = NULL,      -- NULL = all active tables (or filtered by @TargetDatabase)
     @BatchSize    int              = 5000,
     @MaxDOP       tinyint          = 1,
-    @Reset        bit              = 0,
     @DryRun       bit              = 0,         -- If 1, print dynamic SQL instead of executing it
     @BusinessUnitId uniqueidentifier = NULL,
     @TargetDatabase sysname        = NULL      -- Optional: filter to tables where TargetDatabase matches
@@ -81,6 +80,13 @@ BEGIN
 
     DECLARE @Now datetime2(7) = SYSDATETIME();
     DECLARE @RequestedBy sysname = SUSER_SNAME();
+
+    -- Normalize batch size to a safe, positive value to avoid invalid TOP() usage.
+    DECLARE @EffectiveBatchSize int = @BatchSize;
+    IF @EffectiveBatchSize IS NULL OR @EffectiveBatchSize <= 0
+    BEGIN
+        SET @EffectiveBatchSize = 5000;
+    END
 
     IF @DryRun = 1 AND @RunType <> N'DryRun'
     BEGIN
@@ -185,8 +191,9 @@ BEGIN
             -- Derive the Business Unit lookup table (e.g. <TargetDB>.<Schema>.LA_BU) from the target table.
             DECLARE @ParsedTargetDatabase sysname = PARSENAME(@TargetTableFull, 3);
             DECLARE @ParsedTargetSchema sysname = PARSENAME(@TargetTableFull, 2);
+            DECLARE @ParsedTargetTable sysname = PARSENAME(@TargetTableFull, 1);
             
-            IF @ParsedTargetDatabase IS NULL OR @ParsedTargetSchema IS NULL
+            IF @ParsedTargetDatabase IS NULL OR @ParsedTargetSchema IS NULL OR @ParsedTargetTable IS NULL
             BEGIN
                 RAISERROR(N'Failed to parse TargetTableFull ''%s'' for table ''%s''. Expected format: Database.Schema.Table', 16, 1, @TargetTableFull, @T_TableName);
             END
@@ -243,6 +250,32 @@ BEGIN
                 END
             END
 
+            -- For Full runs, we may be re-running an initial load against a table that
+            -- already has data and self-referencing foreign keys (e.g. path_locator/parent_path_locator).
+            -- Drop any self-referencing foreign key constraints on the target table to avoid
+            -- FK violations when re-seeding from scratch.
+            -- IF @RunType = N'Full' AND @DryRun = 0
+            -- BEGIN
+            --     DECLARE @DropSelfFkSql nvarchar(max) =
+            --         N'USE ' + QUOTENAME(@ParsedTargetDatabase) + N';
+            --           DECLARE @sql nvarchar(max) = N''''; 
+            --           SELECT @sql = @sql + N''ALTER TABLE '' + QUOTENAME(s.name) + N''.'' + QUOTENAME(t.name) +
+            --                              N'' DROP CONSTRAINT '' + QUOTENAME(fk.name) + N'';'' + CHAR(13) + CHAR(10)
+            --           FROM sys.foreign_keys fk
+            --           INNER JOIN sys.tables t ON fk.parent_object_id = t.object_id
+            --           INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            --           WHERE fk.parent_object_id = fk.referenced_object_id
+            --             AND t.name = ' + QUOTENAME(@ParsedTargetTable, '''') + N'
+            --             AND s.name = ' + QUOTENAME(@ParsedTargetSchema, '''') + N';
+            --           IF @sql <> N'''' 
+            --           BEGIN
+            --               PRINT N''Dropping self-referencing foreign key constraints for table ' + @T_TableName + N' in database ' + @ParsedTargetDatabase + N'.'';
+            --               EXEC (@sql);
+            --           END;';
+
+            --     EXEC (@DropSelfFkSql);
+            -- END
+
             IF @SafetyBufferMinutes IS NULL SET @SafetyBufferMinutes = 240;
 
             -- Load high-watermark and compute window.
@@ -266,16 +299,6 @@ BEGIN
                         ELSE DATEADD(MINUTE, -@SafetyBufferMinutes, @LastHighWater)
                     END;
                 PRINT N'Table ' + @T_TableName + N': WindowStart=' + CONVERT(nvarchar(30), @WindowStart, 126) + N', WindowEnd=' + CONVERT(nvarchar(30), @WindowEnd, 126) + N', LastHighWater=' + ISNULL(CONVERT(nvarchar(30), @LastHighWater, 126), N'NULL');
-            END
-
-            -- Optional reset support for this run/table.
-            IF @Reset = 1 AND @DryRun = 0
-            BEGIN
-                DELETE FROM dbo.BlobDeltaMissingParentsQueue
-                WHERE RunId = @RunId AND TableName = @T_TableName;
-
-                DELETE FROM dbo.BlobDeltaRunStep
-                WHERE RunId = @RunId AND TableName = @T_TableName;
             END
 
             -- Acquire simple lease for this table (skip in dry-run mode).
@@ -339,7 +362,7 @@ BEGIN
                         PRINT N'==== DRY RUN (Step 1 - Roots) for table ' + @T_TableName + N', batch ' + CAST(@BatchNumber AS nvarchar(10)) + N' ====';
                         PRINT @Sql;
                         PRINT N'-- Parameters:'
-                            + N' @BatchSize=' + CAST(@BatchSize AS nvarchar(20))
+                            + N' @BatchSize=' + CAST(@EffectiveBatchSize AS nvarchar(20))
                             + N', @ExcludedStreamId=' + CAST(@ExcludedStreamId AS nvarchar(50))
                             + N', @WindowStart=' + CAST(@WindowStart AS nvarchar(50))
                             + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50))
@@ -354,7 +377,7 @@ BEGIN
                           @WindowStart datetime2(7),
                           @WindowEnd datetime2(7),
                           @BusinessUnitId uniqueidentifier',
-                        @BatchSize      = @BatchSize,
+                        @BatchSize      = @EffectiveBatchSize,
                         @ExcludedStreamId = @ExcludedStreamId,
                         @WindowStart    = @WindowStart,
                         @WindowEnd      = @WindowEnd,
@@ -486,7 +509,7 @@ BEGIN
                     CREATE TABLE #Batch (stream_id uniqueidentifier PRIMARY KEY);
 
                     INSERT INTO #Batch (stream_id)
-                    SELECT TOP (@BatchSize) Q.stream_id
+                    SELECT TOP (@EffectiveBatchSize) Q.stream_id
                     FROM dbo.BlobDeltaMissingParentsQueue Q WITH (READPAST)
                     WHERE Q.RunId = @RunId
                       AND Q.TableName = @T_TableName
@@ -513,14 +536,14 @@ BEGIN
                     BEGIN
                         PRINT N'==== DRY RUN (Step 2 - MissingParentsBatch) for table ' + @T_TableName + N', batch ' + CAST(@BatchNumber AS nvarchar(10)) + N' ====';
                         PRINT @Sql;
-                        PRINT N'-- Parameters: @BatchSize=' + CAST(@BatchSize AS nvarchar(20));
+                        PRINT N'-- Parameters: @BatchSize=' + CAST(@EffectiveBatchSize AS nvarchar(20));
                         -- In dry run we only print the generated SQL once for this step.
                         BREAK;
                     END
 
                     EXEC sp_executesql @Sql,
                         N'@BatchSize int',
-                        @BatchSize = @BatchSize;
+                        @BatchSize = @EffectiveBatchSize;
 
                     SET @Rows = @@ROWCOUNT;
                     SET @TotalRows = @TotalRows + @Rows;
@@ -613,7 +636,7 @@ BEGIN
                         PRINT N'==== DRY RUN (Step 3 - Children) for table ' + @T_TableName + N', batch ' + CAST(@BatchNumber AS nvarchar(10)) + N' ====';
                         PRINT @Sql;
                         PRINT N'-- Parameters:'
-                            + N' @BatchSize=' + CAST(@BatchSize AS nvarchar(20))
+                            + N' @BatchSize=' + CAST(@EffectiveBatchSize AS nvarchar(20))
                             + N', @ExcludedStreamId=' + CAST(@ExcludedStreamId AS nvarchar(50))
                             + N', @WindowStart=' + CAST(@WindowStart AS nvarchar(50))
                             + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50))
@@ -628,7 +651,7 @@ BEGIN
                           @WindowStart datetime2(7),
                           @WindowEnd datetime2(7),
                           @BusinessUnitId uniqueidentifier',
-                        @BatchSize      = @BatchSize,
+                        @BatchSize      = @EffectiveBatchSize,
                         @ExcludedStreamId = @ExcludedStreamId,
                         @WindowStart    = @WindowStart,
                         @WindowEnd      = @WindowEnd,
@@ -759,13 +782,12 @@ BEGIN
     IF @Mode = N'AllTables'
     BEGIN
         EXEC dbo.usp_BlobDelta_Run
-            @RunId        = @RunId OUTPUT,
-            @RunType      = N'Delta',
-            @TableName    = NULL,
-            @BatchSize    = @BatchSize,
-            @MaxDOP       = @MaxDOP,
-            @Reset        = 0,
-            @DryRun       = @DryRun,
+            @RunId          = @RunId OUTPUT,
+            @RunType        = N'Delta',
+            @TableName      = NULL,
+            @BatchSize      = @BatchSize,
+            @MaxDOP         = @MaxDOP,
+            @DryRun         = @DryRun,
             @BusinessUnitId = @BusinessUnitId,
             @TargetDatabase = @TargetDatabase;
     END
@@ -778,13 +800,12 @@ BEGIN
         END
 
         EXEC dbo.usp_BlobDelta_Run
-            @RunId        = @RunId OUTPUT,
-            @RunType      = N'Delta',
-            @TableName    = @TableName,
-            @BatchSize    = @BatchSize,
-            @MaxDOP       = @MaxDOP,
-            @Reset        = 0,
-            @DryRun       = @DryRun,
+            @RunId          = @RunId OUTPUT,
+            @RunType        = N'Delta',
+            @TableName      = @TableName,
+            @BatchSize      = @BatchSize,
+            @MaxDOP         = @MaxDOP,
+            @DryRun         = @DryRun,
             @BusinessUnitId = @BusinessUnitId,
             @TargetDatabase = @TargetDatabase;
     END

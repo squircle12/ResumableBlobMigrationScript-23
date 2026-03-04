@@ -26,19 +26,110 @@ GO
 DECLARE @FileTableDatabase sysname = N'Gwent_LA_FileTable';   -- Target FileTable DB (e.g. per BU/tenant)
 DECLARE @FileTableSchema   sysname = N'dbo';
 
-DECLARE @ReferralTableName sysname = N'ReferralAttachment';
-DECLARE @ClientTableName   sysname = N'ClientAttachment';
+DECLARE @ReferralTableName     sysname = N'ReferralAttachment';
+DECLARE @ClientTableName       sysname = N'ClientAttachment';
+DECLARE @ProviderTableName     sysname = N'ProviderAttachment';
+DECLARE @ReferralFormTableName sysname = N'ReferralFormAttachment';
 
 DECLARE @SourceDatabase    sysname = N'AdvancedRBSBlob_WCCIS';
 DECLARE @SourceSchema      sysname = N'dbo';
 
-DECLARE @MetadataDatabase           sysname = N'AdvancedRBS_MetaData';
-DECLARE @MetadataSchema             sysname = N'dbo';
-DECLARE @ReferralMetadataTable      sysname = N'cw_referralattachmentBase';
-DECLARE @ReferralMetadataIdColumn   sysname = N'cw_referralattachmentId';
-DECLARE @ClientMetadataTable        sysname = N'cw_clientattachmentBase';
-DECLARE @ClientMetadataIdColumn     sysname = N'cw_clientattachmentId';
-DECLARE @MetadataModifiedOnColumn   sysname = N'ModifiedOn';
+DECLARE @MetadataDatabase             sysname = N'AdvancedRBS_MetaData';
+DECLARE @MetadataSchema               sysname = N'dbo';
+DECLARE @ReferralMetadataTable        sysname = N'cw_referralattachmentBase';
+DECLARE @ReferralMetadataIdColumn     sysname = N'cw_referralattachmentId';
+DECLARE @ClientMetadataTable          sysname = N'cw_clientattachmentBase';
+DECLARE @ClientMetadataIdColumn       sysname = N'cw_clientattachmentId';
+DECLARE @ProviderMetadataTable        sysname = N'cw_ProviderAttachmentBase';
+DECLARE @ProviderMetadataIdColumn     sysname = N'cw_ProviderAttachmentId';
+DECLARE @ReferralFormMetadataTable    sysname = N'cw_assessmentAttachmentBase';
+DECLARE @ReferralFormMetadataIdColumn sysname = N'cw_assessmentAttachmentid';
+DECLARE @MetadataModifiedOnColumn     sysname = N'ModifiedOn';
+
+-- Additional attachment-style tables from AdvancedRBSBlob_WCCIS
+DECLARE @AllergyAndReactionAttachmentTableName           sysname = N'AllergyAndReactionAttachment';
+DECLARE @AllergyAndReactionAttachmentMetadataTable       sysname = N'cw_personallergyattachmentBase';
+DECLARE @AllergyAndReactionAttachmentMetadataIdColumn    sysname = N'cw_personallergyattachmentId';
+
+DECLARE @AssessmentPrintRecordTableName                  sysname = N'AssessmentPrintRecord';
+DECLARE @AssessmentPrintRecordMetadataTable              sysname = N'cw_AssessmentPrintRecordBase';
+DECLARE @AssessmentPrintRecordMetadataIdColumn           sysname = N'cw_AssessmentPrintRecordid';
+
+DECLARE @ClientPortabilityAttachmentTableName            sysname = N'ClientPortabilityAttachment';
+DECLARE @ClientPortabilityAttachmentMetadataTable        sysname = N'cw_ClientPortabilityAttachmentBase';
+DECLARE @ClientPortabilityAttachmentMetadataIdColumn     sysname = N'cw_ClientPortabilityAttachmentid';
+
+DECLARE @ClinicAppointmentAttachmentTableName            sysname = N'ClinicAppointmentAttachment';
+DECLARE @ClinicAppointmentAttachmentMetadataTable        sysname = N'cw_ClinicAppointmentAttachmentBase';
+DECLARE @ClinicAppointmentAttachmentMetadataIdColumn     sysname = N'cw_ClinicAppointmentAttachmentid';
+
+DECLARE @ConsentToTreatmentAttachmentTableName           sysname = N'ConsentToTreatmentAttachment';
+DECLARE @ConsentToTreatmentAttachmentMetadataTable       sysname = N'cw_ConsentToTreatmentAttachmentBase';
+DECLARE @ConsentToTreatmentAttachmentMetadataIdColumn    sysname = N'cw_ConsentToTreatmentAttachmentid';
+
+DECLARE @CourtDatesAndOutcomesAttachmentTableName        sysname = N'CourtDatesAndOutcomesAttachment';
+DECLARE @CourtDatesAndOutcomesAttachmentMetadataTable    sysname = N'cw_CourtDatesAndOutcomesAttachmentBase';
+DECLARE @CourtDatesAndOutcomesAttachmentMetadataIdColumn sysname = N'cw_CourtDatesAndOutcomesAttachmentid';
+
+DECLARE @FamilyFormAttachmentTableName                   sysname = N'FamilyFormAttachment';
+DECLARE @FamilyFormAttachmentMetadataTable               sysname = N'cw_FamilyFormAttachmentBase';
+DECLARE @FamilyFormAttachmentMetadataIdColumn            sysname = N'cw_FamilyFormAttachmentid';
+
+DECLARE @FamilyReferralAttachmentTableName               sysname = N'FamilyReferralAttachment';
+DECLARE @FamilyReferralAttachmentMetadataTable           sysname = N'cw_FamilyReferralAttachmentBase';
+DECLARE @FamilyReferralAttachmentMetadataIdColumn        sysname = N'cw_FamilyReferralAttachmentid';
+
+DECLARE @GenogramTableName                               sysname = N'Genogram';
+DECLARE @GenogramMetadataTable                           sysname = N'cw_GenogramBase';
+DECLARE @GenogramMetadataIdColumn                        sysname = N'cw_Genogramid';
+
+DECLARE @LettersTableName                                sysname = N'Letters';
+DECLARE @LettersMetadataTable                            sysname = N'LetterBase';
+DECLARE @LettersMetadataIdColumn                         sysname = N'ActivityId';
+
+DECLARE @MHALegalStatusAttachmentTableName               sysname = N'MHALegalStatusAttachment';
+DECLARE @MHALegalStatusAttachmentMetadataTable           sysname = N'cw_MHALegalStatusAttachmentBase';
+DECLARE @MHALegalStatusAttachmentMetadataIdColumn        sysname = N'cw_MHALegalStatusAttachmentid';
+
+DECLARE @MHMFormAttachmentTableName                      sysname = N'MHMFormAttachment';
+DECLARE @MHMFormAttachmentMetadataTable                  sysname = N'cw_mentalhealthmeasureformattachmentBase';
+DECLARE @MHMFormAttachmentMetadataIdColumn               sysname = N'cw_mentalhealthmeasureformattachmentId';
+
+DECLARE @PersonBodyMapAttachmentTableName                sysname = N'PersonBodyMapAttachment';
+DECLARE @PersonBodyMapAttachmentMetadataTable            sysname = N'cw_PersonBodyMapAttachmentBase';
+DECLARE @PersonBodyMapAttachmentMetadataIdColumn         sysname = N'cw_PersonBodyMapAttachmentid';
+
+DECLARE @ProviderFormAttachmentTableName                 sysname = N'ProviderFormAttachment';
+DECLARE @ProviderFormAttachmentMetadataTable             sysname = N'cw_ProviderFormAttachmentBase';
+DECLARE @ProviderFormAttachmentMetadataIdColumn          sysname = N'cw_ProviderFormAttachmentid';
+
+DECLARE @RecordOfAppealAttachmentTableName               sysname = N'RecordOfAppealAttachment';
+DECLARE @RecordOfAppealAttachmentMetadataTable           sysname = N'cw_RecordOfAppealAttachmentBase';
+DECLARE @RecordOfAppealAttachmentMetadataIdColumn        sysname = N'cw_RecordOfAppealAttachmentid';
+
+DECLARE @ReferralFormHistoryTableName                    sysname = N'ReferralFormHistory';
+DECLARE @ReferralFormHistoryMetadataTable                sysname = N'cw_AssessmentPrintRecordBase';
+DECLARE @ReferralFormHistoryMetadataIdColumn             sysname = N'cw_AssessmentPrintRecordid';
+
+DECLARE @ReportsAndFormsActivityAttachmentTableName      sysname = N'ReportsAndFormsActivityAttachment';
+DECLARE @ReportsAndFormsActivityAttachmentMetadataTable  sysname = N'cw_ReportsAndFormsActivityAttachmentBase';
+DECLARE @ReportsAndFormsActivityAttachmentMetadataIdColumn sysname = N'cw_ReportsAndFormsActivityAttachmentid';
+
+DECLARE @SARDocumentTableName                            sysname = N'SARDocument';
+DECLARE @SARDocumentMetadataTable                        sysname = N'cw_printcasefileBase';
+DECLARE @SARDocumentMetadataIdColumn                     sysname = N'cw_printcasefileid';
+
+DECLARE @SARTemplateTableName                            sysname = N'SARTemplate';
+DECLARE @SARTemplateMetadataTable                        sysname = N'cw_subjectaccessrequestBase';
+DECLARE @SARTemplateMetadataIdColumn                     sysname = N'cw_templateid';
+
+DECLARE @SeclusionAttachmentTableName                    sysname = N'SeclusionAttachment';
+DECLARE @SeclusionAttachmentMetadataTable                sysname = N'cw_SeclusionAttachmentBase';
+DECLARE @SeclusionAttachmentMetadataIdColumn             sysname = N'cw_SeclusionAttachmentid';
+
+DECLARE @Section117EntitlementAttachmentTableName        sysname = N'Section117EntitlementAttachment';
+DECLARE @Section117EntitlementAttachmentMetadataTable    sysname = N'cw_mhasection117entitlementattachmentBase';
+DECLARE @Section117EntitlementAttachmentMetadataIdColumn sysname = N'cw_mhasection117entitlementattachmentId';
 
 -- -----------------------------------------------------------------------------
 -- 1. Seed BlobDeltaTableConfig for known tables
@@ -65,6 +156,282 @@ USING (
         @FileTableDatabase, @FileTableSchema, @ClientTableName,
         @MetadataDatabase, @MetadataSchema, @ClientMetadataTable,
         @ClientMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ProviderTableName,
+        @SourceDatabase,  @SourceSchema,  @ProviderTableName,
+        @FileTableDatabase, @FileTableSchema, @ProviderTableName,
+        @MetadataDatabase, @MetadataSchema, @ProviderMetadataTable,
+        @ProviderMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ReferralFormTableName,
+        @SourceDatabase,  @SourceSchema,  @ReferralFormTableName,
+        @FileTableDatabase, @FileTableSchema, @ReferralFormTableName,
+        @MetadataDatabase, @MetadataSchema, @ReferralFormMetadataTable,
+        @ReferralFormMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @AllergyAndReactionAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @AllergyAndReactionAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @AllergyAndReactionAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @AllergyAndReactionAttachmentMetadataTable,
+        @AllergyAndReactionAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @AssessmentPrintRecordTableName,
+        @SourceDatabase,  @SourceSchema,  @AssessmentPrintRecordTableName,
+        @FileTableDatabase, @FileTableSchema, @AssessmentPrintRecordTableName,
+        @MetadataDatabase, @MetadataSchema, @AssessmentPrintRecordMetadataTable,
+        @AssessmentPrintRecordMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ClientPortabilityAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @ClientPortabilityAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @ClientPortabilityAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @ClientPortabilityAttachmentMetadataTable,
+        @ClientPortabilityAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ClinicAppointmentAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @ClinicAppointmentAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @ClinicAppointmentAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @ClinicAppointmentAttachmentMetadataTable,
+        @ClinicAppointmentAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ConsentToTreatmentAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @ConsentToTreatmentAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @ConsentToTreatmentAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @ConsentToTreatmentAttachmentMetadataTable,
+        @ConsentToTreatmentAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @CourtDatesAndOutcomesAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @CourtDatesAndOutcomesAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @CourtDatesAndOutcomesAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @CourtDatesAndOutcomesAttachmentMetadataTable,
+        @CourtDatesAndOutcomesAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @FamilyFormAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @FamilyFormAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @FamilyFormAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @FamilyFormAttachmentMetadataTable,
+        @FamilyFormAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @FamilyReferralAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @FamilyReferralAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @FamilyReferralAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @FamilyReferralAttachmentMetadataTable,
+        @FamilyReferralAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @GenogramTableName,
+        @SourceDatabase,  @SourceSchema,  @GenogramTableName,
+        @FileTableDatabase, @FileTableSchema, @GenogramTableName,
+        @MetadataDatabase, @MetadataSchema, @GenogramMetadataTable,
+        @GenogramMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @LettersTableName,
+        @SourceDatabase,  @SourceSchema,  @LettersTableName,
+        @FileTableDatabase, @FileTableSchema, @LettersTableName,
+        @MetadataDatabase, @MetadataSchema, @LettersMetadataTable,
+        @LettersMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @MHALegalStatusAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @MHALegalStatusAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @MHALegalStatusAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @MHALegalStatusAttachmentMetadataTable,
+        @MHALegalStatusAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @MHMFormAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @MHMFormAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @MHMFormAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @MHMFormAttachmentMetadataTable,
+        @MHMFormAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @PersonBodyMapAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @PersonBodyMapAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @PersonBodyMapAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @PersonBodyMapAttachmentMetadataTable,
+        @PersonBodyMapAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ProviderFormAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @ProviderFormAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @ProviderFormAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @ProviderFormAttachmentMetadataTable,
+        @ProviderFormAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @RecordOfAppealAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @RecordOfAppealAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @RecordOfAppealAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @RecordOfAppealAttachmentMetadataTable,
+        @RecordOfAppealAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ReferralFormHistoryTableName,
+        @SourceDatabase,  @SourceSchema,  @ReferralFormHistoryTableName,
+        @FileTableDatabase, @FileTableSchema, @ReferralFormHistoryTableName,
+        @MetadataDatabase, @MetadataSchema, @ReferralFormHistoryMetadataTable,
+        @ReferralFormHistoryMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ReportsAndFormsActivityAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @ReportsAndFormsActivityAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @ReportsAndFormsActivityAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @ReportsAndFormsActivityAttachmentMetadataTable,
+        @ReportsAndFormsActivityAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @SARDocumentTableName,
+        @SourceDatabase,  @SourceSchema,  @SARDocumentTableName,
+        @FileTableDatabase, @FileTableSchema, @SARDocumentTableName,
+        @MetadataDatabase, @MetadataSchema, @SARDocumentMetadataTable,
+        @SARDocumentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @SARTemplateTableName,
+        @SourceDatabase,  @SourceSchema,  @SARTemplateTableName,
+        @FileTableDatabase, @FileTableSchema, @SARTemplateTableName,
+        @MetadataDatabase, @MetadataSchema, @SARTemplateMetadataTable,
+        @SARTemplateMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @SeclusionAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @SeclusionAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @SeclusionAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @SeclusionAttachmentMetadataTable,
+        @SeclusionAttachmentMetadataIdColumn,
+        @MetadataModifiedOnColumn,
+        CAST(240 AS INT),
+        CAST(1 AS BIT),
+        CAST(0 AS BIT),
+        CAST(1 AS BIT)
+    UNION ALL
+    SELECT
+        @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @Section117EntitlementAttachmentTableName,
+        @SourceDatabase,  @SourceSchema,  @Section117EntitlementAttachmentTableName,
+        @FileTableDatabase, @FileTableSchema, @Section117EntitlementAttachmentTableName,
+        @MetadataDatabase, @MetadataSchema, @Section117EntitlementAttachmentMetadataTable,
+        @Section117EntitlementAttachmentMetadataIdColumn,
         @MetadataModifiedOnColumn,
         CAST(240 AS INT),
         CAST(1 AS BIT),
@@ -459,7 +826,8 @@ MERGE dbo.BlobDeltaQueuePopulationScript AS t
 USING (
     SELECT TableName
     FROM dbo.BlobDeltaTableConfig
-    WHERE SourceTable IN (N'ReferralAttachment', N'ClientAttachment')
+    WHERE IsActive = 1
+      AND SourceDatabase = @SourceDatabase
 ) AS s
 ON t.TableName = s.TableName
 WHEN NOT MATCHED BY TARGET THEN
