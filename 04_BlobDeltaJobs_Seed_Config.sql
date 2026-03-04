@@ -208,7 +208,7 @@ USING (
         CAST(240 AS INT),
         CAST(1 AS BIT),
         CAST(0 AS BIT),
-        CAST(1 AS BIT)
+        CAST(0 AS BIT)          -- Default to not include updates in extraction
     UNION ALL
     SELECT
         @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ClientPortabilityAttachmentTableName,
@@ -304,7 +304,7 @@ USING (
         CAST(240 AS INT),
         CAST(1 AS BIT),
         CAST(0 AS BIT),
-        CAST(1 AS BIT)
+        CAST(0 AS BIT)          -- Default to not include in extraction
     UNION ALL
     SELECT
         @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @MHALegalStatusAttachmentTableName,
@@ -547,7 +547,7 @@ WHERE RAFT.parent_path_locator IS NULL
   AND RAFT.stream_id <> @ExcludedStreamId
   AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
   AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
-  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
+--  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
 ORDER BY RAFT.stream_id
 OPTION (MAXDOP [MaxDOP]);
 ',
@@ -590,7 +590,7 @@ WHERE RAFT.parent_path_locator IS NULL
   AND RAFT.stream_id <> @ExcludedStreamId
   AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
   AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
-  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
+--  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
 ORDER BY RAFT.stream_id
 OPTION (MAXDOP [MaxDOP]);
 ',
@@ -725,7 +725,7 @@ WHERE RAFT.parent_path_locator IS NOT NULL
   AND RAFT.stream_id <> @ExcludedStreamId
   AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
   AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
-  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
+--  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
 ORDER BY RAFT.stream_id
 OPTION (MAXDOP 1);
 ',
@@ -768,7 +768,7 @@ WHERE RAFT.parent_path_locator IS NOT NULL
   AND RAFT.stream_id <> @ExcludedStreamId
   AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
   AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
-  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
+--  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
 ORDER BY RAFT.stream_id
 OPTION (MAXDOP 1);
 ',
@@ -804,7 +804,7 @@ FROM (
       AND RAFT.stream_id <> @ExcludedStreamId
       AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
       AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
-      AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
+ --     AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
     GROUP BY Par.stream_id
 ) Par
 WHERE Par.stream_id <> @ExcludedStreamId
@@ -827,7 +827,7 @@ USING (
     SELECT TableName
     FROM dbo.BlobDeltaTableConfig
     WHERE IsActive = 1
-      AND SourceDatabase = @SourceDatabase
+      AND SourceDatabase = N'AdvancedRBSBlob_WCCIS'
 ) AS s
 ON t.TableName = s.TableName
 WHEN NOT MATCHED BY TARGET THEN

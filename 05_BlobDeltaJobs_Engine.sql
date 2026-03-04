@@ -56,7 +56,7 @@ BEGIN
 
     IF @SourceTableFull IS NULL
     BEGIN
-        RAISERROR(N'TableName ''%s'' not found or inactive in BlobDeltaTableConfig.', 16, 1, @TableName);
+        RAISERROR(N'TableName ''%s'' not found or inactive in BlobDeltaTableConfig.', 16, 1, @TableName) WITH NOWAIT;
     END
 END;
 GO
@@ -185,7 +185,7 @@ BEGIN
             -- Validate that we got the required table names.
             IF @TargetTableFull IS NULL
             BEGIN
-                RAISERROR(N'Failed to resolve TargetTableFull for table ''%s''.', 16, 1, @T_TableName);
+                RAISERROR(N'Failed to resolve TargetTableFull for table ''%s''.', 16, 1, @T_TableName) WITH NOWAIT;
             END
 
             -- Derive the Business Unit lookup table (e.g. <TargetDB>.<Schema>.LA_BU) from the target table.
@@ -195,7 +195,7 @@ BEGIN
             
             IF @ParsedTargetDatabase IS NULL OR @ParsedTargetSchema IS NULL OR @ParsedTargetTable IS NULL
             BEGIN
-                RAISERROR(N'Failed to parse TargetTableFull ''%s'' for table ''%s''. Expected format: Database.Schema.Table', 16, 1, @TargetTableFull, @T_TableName);
+                RAISERROR(N'Failed to parse TargetTableFull ''%s'' for table ''%s''. Expected format: Database.Schema.Table', 16, 1, @TargetTableFull, @T_TableName) WITH NOWAIT;
             END
             
             SET @BusinessUnitTableFull = @ParsedTargetDatabase + N'.' + @ParsedTargetSchema + N'.LA_BU';
@@ -221,7 +221,7 @@ BEGIN
                 DECLARE @ButErrorMsg nvarchar(max) = N'LA_BU table not found at ' + @BusinessUnitTableFull + 
                     N' for table ''%s''. Please ensure the LA_BU table exists in the target database. ' +
                     N'TargetDatabase: ' + @ParsedTargetDatabase + N', TargetSchema: ' + @ParsedTargetSchema;
-                RAISERROR(@ButErrorMsg, 16, 1, @T_TableName);
+                RAISERROR(@ButErrorMsg, 16, 1, @T_TableName) WITH NOWAIT;
             END
             ELSE
             BEGIN
@@ -246,7 +246,7 @@ BEGIN
                 BEGIN
                     DECLARE @ButColumnErrorMsg nvarchar(max) = N'Column ''businessunit'' not found in table ' + @BusinessUnitTableFull + 
                         N' for table ''%s''. Please verify the LA_BU table structure matches the expected schema.';
-                    RAISERROR(@ButColumnErrorMsg, 16, 1, @T_TableName);
+                    RAISERROR(@ButColumnErrorMsg, 16, 1, @T_TableName) WITH NOWAIT;
                 END
             END
 
@@ -277,6 +277,8 @@ BEGIN
             -- END
 
             IF @SafetyBufferMinutes IS NULL SET @SafetyBufferMinutes = 240;
+
+            RAISERROR(N'Starting processing for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
 
             -- Load high-watermark and compute window.
             SELECT @LastHighWater = h.LastHighWaterModifiedOn
@@ -328,6 +330,8 @@ BEGIN
                 SET @BatchNumber = 0;
                 SET @TotalRows   = 0;
 
+                RAISERROR(N'Starting Step 1 (Roots) for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
+
                 WHILE 1 = 1
                 BEGIN
                     SET @BatchNumber = @BatchNumber + 1;
@@ -339,13 +343,13 @@ BEGIN
 
                     IF @Sql IS NULL
                     BEGIN
-                        RAISERROR(N'Script template not found for StepNumber=1, ScriptKind=''Roots''.', 16, 1);
+                        RAISERROR(N'Script template not found for StepNumber=1, ScriptKind=''Roots''.', 16, 1) WITH NOWAIT;
                     END
 
                     -- Validate required variables are set before replacement.
                     IF @BusinessUnitTableFull IS NULL
                     BEGIN
-                        RAISERROR(N'BusinessUnitTableFull is NULL for table ''%s''. TargetTableFull: ''%s''', 16, 1, @T_TableName, @TargetTableFull);
+                        RAISERROR(N'BusinessUnitTableFull is NULL for table ''%s''. TargetTableFull: ''%s''', 16, 1, @T_TableName, @TargetTableFull) WITH NOWAIT;
                     END
 
                     -- Replace placeholders with table/column names, BU table, and MaxDOP.
@@ -420,6 +424,8 @@ BEGIN
                      @WindowStart, @WindowEnd,
                      SYSDATETIME(), SYSDATETIME(),
                      N'Completed', NULL);
+
+                RAISERROR(N'Completed Step 1 (Roots) for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
             END
 
             -- -----------------------------------------------------------------
@@ -438,6 +444,8 @@ BEGIN
                 SET @BatchNumber = 0;
                 SET @TotalRows   = 0;
 
+                RAISERROR(N'Starting Step 2 (MissingParents) for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
+
                 -- Populate queue for this run/table if empty.
                 IF NOT EXISTS (
                     SELECT 1
@@ -448,7 +456,7 @@ BEGIN
                     -- Validate BusinessUnitTableFull is set before queue population
                     IF @BusinessUnitTableFull IS NULL
                     BEGIN
-                        RAISERROR(N'BusinessUnitTableFull is NULL for table ''%s'' in Step 2. TargetTableFull: ''%s''', 16, 1, @T_TableName, @TargetTableFull);
+                        RAISERROR(N'BusinessUnitTableFull is NULL for table ''%s'' in Step 2. TargetTableFull: ''%s''', 16, 1, @T_TableName, @TargetTableFull) WITH NOWAIT;
                     END
                     
                     SELECT @Sql = ScriptBody
@@ -457,7 +465,7 @@ BEGIN
                     
                     IF @Sql IS NULL
                     BEGIN
-                        RAISERROR(N'Queue population script not found for table ''%s''.', 16, 1, @T_TableName);
+                        RAISERROR(N'Queue population script not found for table ''%s''.', 16, 1, @T_TableName) WITH NOWAIT;
                     END
 
                     -- Replace placeholders, including BusinessUnitTableFull so we don't leave a literal
@@ -584,6 +592,8 @@ BEGIN
                      @WindowStart, @WindowEnd,
                      SYSDATETIME(), SYSDATETIME(),
                      N'Completed', NULL);
+
+                RAISERROR(N'Completed Step 2 (MissingParents) for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
             END
 
             -- -----------------------------------------------------------------
@@ -602,6 +612,8 @@ BEGIN
                 SET @BatchNumber = 0;
                 SET @TotalRows   = 0;
 
+                RAISERROR(N'Starting Step 3 (Children) for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
+
                 WHILE 1 = 1
                 BEGIN
                     SET @BatchNumber = @BatchNumber + 1;
@@ -613,13 +625,13 @@ BEGIN
 
                     IF @Sql IS NULL
                     BEGIN
-                        RAISERROR(N'Script template not found for StepNumber=3, ScriptKind=''Children''.', 16, 1);
+                        RAISERROR(N'Script template not found for StepNumber=3, ScriptKind=''Children''.', 16, 1) WITH NOWAIT;
                     END
 
                     -- Validate required variables are set before replacement.
                     IF @BusinessUnitTableFull IS NULL
                     BEGIN
-                        RAISERROR(N'BusinessUnitTableFull is NULL for table ''%s''. TargetTableFull: ''%s''', 16, 1, @T_TableName, @TargetTableFull);
+                        RAISERROR(N'BusinessUnitTableFull is NULL for table ''%s''. TargetTableFull: ''%s''', 16, 1, @T_TableName, @TargetTableFull) WITH NOWAIT;
                     END
 
                     SET @Sql = REPLACE(@Sql, N'[SourceTableFull]',          ISNULL(@SourceTableFull, N''));
@@ -689,6 +701,8 @@ BEGIN
                      @WindowStart, @WindowEnd,
                      SYSDATETIME(), SYSDATETIME(),
                      N'Completed', NULL);
+
+                RAISERROR(N'Completed Step 3 (Children) for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
             END
 
             -- -----------------------------------------------------------------
@@ -706,6 +720,8 @@ BEGIN
                     RunLeaseExpiresAt        = NULL
                 WHERE TableName = @T_TableName;
             END
+
+            RAISERROR(N'Completed processing for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
         END TRY
         BEGIN CATCH
             DECLARE @ErrMsg nvarchar(max) = ERROR_MESSAGE();
@@ -795,7 +811,7 @@ BEGIN
     BEGIN
         IF @TableName IS NULL
         BEGIN
-            RAISERROR(N'TableName must be provided when Mode = ''SingleTable''.', 16, 1);
+            RAISERROR(N'TableName must be provided when Mode = ''SingleTable''.', 16, 1) WITH NOWAIT;
             RETURN;
         END
 
@@ -811,7 +827,7 @@ BEGIN
     END
     ELSE
     BEGIN
-        RAISERROR(N'Unsupported Mode. Use ''AllTables'' or ''SingleTable''.', 16, 1);
+        RAISERROR(N'Unsupported Mode. Use ''AllTables'' or ''SingleTable''.', 16, 1) WITH NOWAIT;
         RETURN;
     END
 
