@@ -400,7 +400,7 @@ USING (
         CAST(240 AS INT),
         CAST(1 AS BIT),
         CAST(0 AS BIT),
-        CAST(1 AS BIT)
+        CAST(0 AS BIT)
     UNION ALL
     SELECT
         @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @SARTemplateTableName,
@@ -412,7 +412,7 @@ USING (
         CAST(240 AS INT),
         CAST(1 AS BIT),
         CAST(0 AS BIT),
-        CAST(1 AS BIT)
+        CAST(0 AS BIT)
     UNION ALL
     SELECT
         @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @SeclusionAttachmentTableName,
