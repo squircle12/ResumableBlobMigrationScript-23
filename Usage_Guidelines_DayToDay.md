@@ -9,7 +9,7 @@ The Blob Delta Jobs service is a system that allows you to run extracts of blob 
 - Create the LA Filetable Databases in the SQL Server instance. by running the contents of the 03_CreateLAFiletableDatabases.sql script. ensure you replace the LANameHere placeholder with the actual LA name.
 Example: 
 ```
-DECLARE @TargetDatabase         sysname        = N'YnysMon_LA_FileTable';  -- The database that will host the FILETABLEs
+DECLARE @TargetDatabase         sysname        = N'LANameHere_LA_FileTable';  -- The database that will host the FILETABLEs
 ```
 This should be the only line you need to change on the script.
 - Run the script
@@ -51,16 +51,6 @@ GO
 ```
 There are other parameters etc, but the basics are set the `RunType` to `'Full'`, and set the `TargetDatabase` to the LA FileTable DB Name. Progress can be monitored in the Messages tab of SSMS as well as the `dbo.BlobDeltaRunStep` table.
 
-*TIP:* If a Full run fails to complete due to system issues, by its nature, the script is resumable, so re-executing the "Full" extract it will resume where it left off.
+**TIP:** If a Full run fails to complete due to system issues, by its nature, the script is resumable, so re-executing the "Full" extract it will resume where it left off.
 
 
-## How to Run the Blob Delta Jobs
-
-1. Run the `03_BlobDeltaJobs_Schema.sql` script to create the `BlobDeltaJobs` database and core tables.
-2. Run the `04_BlobDeltaJobs_Seed_Config.sql` script to seed the `BlobDeltaTableConfig` table with the necessary configuration.
-3. Run the `05_BlobDeltaJobs_Engine.sql` script to create the `BlobDeltaEngine` stored procedures.
-4. Run the `06_BlobDeltaJobs_RunOperator.sql` script to create the `BlobDeltaRunOperator` stored procedure.
-5. Run the `07_BlobDeltaJobs_RunOperator.sql` script to create the `BlobDeltaRunOperator` stored procedure.
-6. Run the `08_BlobDeltaJobs_RunOperator.sql` script to create the `BlobDeltaRunOperator` stored procedure.
-7. Run the `09_BlobDeltaJobs_RunOperator.sql` script to create the `BlobDeltaRunOperator` stored procedure.
-8. Run the `10_BlobDeltaJobs_RunOperator.sql` script to create the `BlobDeltaRunOperator` stored procedure.
