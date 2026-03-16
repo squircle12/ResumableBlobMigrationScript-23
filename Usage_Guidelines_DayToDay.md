@@ -8,7 +8,8 @@ The Blob Delta Jobs service is a system that allows you to run extracts of blob 
 
 - Create the LA Filetable Databases in the SQL Server instance. by running the contents of the 03_CreateLAFiletableDatabases.sql script. ensure you replace the LANameHere placeholder with the actual LA name.
 Example: 
-```DECLARE @TargetDatabase         sysname        = N'YnysMon_LA_FileTable';  -- The database that will host the FILETABLEs
+```
+DECLARE @TargetDatabase         sysname        = N'YnysMon_LA_FileTable';  -- The database that will host the FILETABLEs
 ```
 This should be the only line you need to change on the script.
 - Run the script
