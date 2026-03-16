@@ -840,3 +840,122 @@ GO
 PRINT N'BlobDeltaJobs config and script templates seeded/updated successfully.';
 GO
 
+-- -----------------------------------------------------------------------------
+-- 4. Seed error handling policy (fatal vs non-fatal)
+-- -----------------------------------------------------------------------------
+
+;WITH PolicySeeds AS (
+    SELECT
+        CAST(207 AS int)          AS ErrorNumber,
+        N'Invalid column name%'   AS ErrorMessagePattern,
+        CAST(NULL AS tinyint)     AS AppliesToStep,
+        CAST(NULL AS sysname)     AS AppliesToTableName,
+        CAST(1 AS bit)            AS IsFatal,
+        N'Table'                  AS ErrorScope,
+        N'Invalid column name (schema/config issue) should fail the job.' AS Notes
+    UNION ALL
+    SELECT
+        CAST(208 AS int),
+        N'Invalid object name%',
+        NULL,
+        NULL,
+        CAST(1 AS bit),
+        N'Table',
+        N'Invalid object name (schema/config issue) should fail the job.'
+    UNION ALL
+    -- Custom RAISERROR-based configuration issues from the engine (50000 by default)
+    SELECT
+        50000,
+        N'TableName ''%'' not found or inactive in BlobDeltaTableConfig.%',
+        NULL,
+        NULL,
+        CAST(1 AS bit),
+        N'Table',
+        N'Missing or inactive BlobDeltaTableConfig entry should fail the job.'
+    UNION ALL
+    SELECT
+        50000,
+        N'LA_BU table not found at % for table ''%''.%',
+        NULL,
+        NULL,
+        CAST(1 AS bit),
+        N'Table',
+        N'Missing LA_BU table indicates bad configuration and should be fatal.'
+    UNION ALL
+    SELECT
+        50000,
+        N'Column ''businessunit'' not found in table % for table ''%''.%',
+        NULL,
+        NULL,
+        CAST(1 AS bit),
+        N'Table',
+        N'Unexpected LA_BU schema; treat as fatal misconfiguration.'
+    UNION ALL
+    SELECT
+        50000,
+        N'Failed to parse TargetTableFull ''%'' for table ''%''.%',
+        NULL,
+        NULL,
+        CAST(1 AS bit),
+        N'Table',
+        N'TargetTableFull parsing/configuration issue should be fatal.'
+    UNION ALL
+    SELECT
+        50000,
+        N'Script template not found for StepNumber=%, ScriptKind=''Roots''.%',
+        CAST(1 AS tinyint),
+        NULL,
+        CAST(1 AS bit),
+        N'Table',
+        N'Missing Roots script template indicates broken deployment; fail fast.'
+    UNION ALL
+    SELECT
+        50000,
+        N'Script template not found for StepNumber=3, ScriptKind=''Children''.%',
+        CAST(3 AS tinyint),
+        NULL,
+        CAST(1 AS bit),
+        N'Table',
+        N'Missing Children script template indicates broken deployment; fail fast.'
+    UNION ALL
+    SELECT
+        50000,
+        N'Queue population script not found for table ''%''.%',
+        CAST(2 AS tinyint),
+        NULL,
+        CAST(1 AS bit),
+        N'Table',
+        N'Missing queue population script should be treated as fatal.'
+)
+MERGE dbo.BlobDeltaErrorPolicy AS t
+USING PolicySeeds AS s
+    ON  ISNULL(t.ErrorNumber, -1)                 = ISNULL(s.ErrorNumber, -1)
+    AND ISNULL(t.ErrorMessagePattern, N'')        = ISNULL(s.ErrorMessagePattern, N'')
+    AND ISNULL(CAST(t.AppliesToStep AS int), -1)  = ISNULL(CAST(s.AppliesToStep AS int), -1)
+    AND ISNULL(t.AppliesToTableName, N'')         = ISNULL(s.AppliesToTableName, N'')
+WHEN NOT MATCHED BY TARGET THEN
+    INSERT (
+        ErrorNumber,
+        ErrorMessagePattern,
+        AppliesToStep,
+        AppliesToTableName,
+        IsFatal,
+        ErrorScope,
+        Notes
+    )
+    VALUES (
+        s.ErrorNumber,
+        s.ErrorMessagePattern,
+        s.AppliesToStep,
+        s.AppliesToTableName,
+        s.IsFatal,
+        s.ErrorScope,
+        s.Notes
+    )
+WHEN MATCHED THEN
+    UPDATE SET
+        t.IsFatal    = s.IsFatal,
+        t.ErrorScope = s.ErrorScope,
+        t.Notes      = s.Notes;
+GO
+

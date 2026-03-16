@@ -130,20 +130,26 @@ EXEC (@Sql);
 --         Force SINGLE_USER temporarily to avoid blocking
 -------------------------------------------------------------------------------
 SET @Sql = N'
-PRINT ''Switching database ' + QUOTENAME(@TargetDatabase) + N' to SINGLE_USER for FILESTREAM configuration...'';
-ALTER DATABASE ' + QUOTENAME(@TargetDatabase) + N' SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-
-PRINT ''Setting FILESTREAM options (DIRECTORY_NAME, NON_TRANSACTED_ACCESS) for database ' + @TargetDatabase + N'...'';
-ALTER DATABASE ' + QUOTENAME(@TargetDatabase) + N'
-SET FILESTREAM
-(
-    DIRECTORY_NAME        = N''' + @FileTableDirectoryName + N''',
-    NON_TRANSACTED_ACCESS = FULL
-);
-
-PRINT ''Switching database ' + QUOTENAME(@TargetDatabase) + N' back to MULTI_USER...'';
-ALTER DATABASE ' + QUOTENAME(@TargetDatabase) + N' SET MULTI_USER;
-';
+IF EXISTS (
+    SELECT 1
+    FROM sys.database_filestream_options
+    WHERE DB_NAME(database_id) = N''' + @TargetDatabase + N'''
+      AND directory_name = N''' + @FileTableDirectoryName + N'''
+      AND non_transacted_access_desc = ''FULL''
+)
+BEGIN
+    PRINT ''FILESTREAM options already configured for database ' + @TargetDatabase + N'. Skipping FILESTREAM configuration.'';
+END
+ELSE
+BEGIN
+    PRINT ''Setting FILESTREAM options (DIRECTORY_NAME, NON_TRANSACTED_ACCESS) for database ' + @TargetDatabase + N'...'';
+    ALTER DATABASE ' + QUOTENAME(@TargetDatabase) + N'
+    SET FILESTREAM
+    (
+        DIRECTORY_NAME        = N''' + @FileTableDirectoryName + N''',
+        NON_TRANSACTED_ACCESS = FULL
+    );
+END;';
 
 EXEC (@Sql);
 -------------------------------------------------------------------------------

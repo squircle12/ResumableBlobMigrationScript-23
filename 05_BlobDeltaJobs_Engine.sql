@@ -373,39 +373,116 @@ BEGIN
                         BREAK;
                     END
 
-                    EXEC sp_executesql @Sql,
-                        N'@BatchSize int,
-                          @ExcludedStreamId uniqueidentifier,
-                          @WindowStart datetime2(7),
-                          @WindowEnd datetime2(7)',
-                        @BatchSize      = @EffectiveBatchSize,
-                        @ExcludedStreamId = @ExcludedStreamId,
-                        @WindowStart    = @WindowStart,
-                        @WindowEnd      = @WindowEnd;
+                    BEGIN TRY
+                        EXEC sp_executesql @Sql,
+                            N'@BatchSize int,
+                              @ExcludedStreamId uniqueidentifier,
+                              @WindowStart datetime2(7),
+                              @WindowEnd datetime2(7)',
+                            @BatchSize      = @EffectiveBatchSize,
+                            @ExcludedStreamId = @ExcludedStreamId,
+                            @WindowStart    = @WindowStart,
+                            @WindowEnd      = @WindowEnd;
 
-                    SET @Rows = @@ROWCOUNT;
-                    SET @TotalRows = @TotalRows + @Rows;
-                    SET @BatchCompletedAt = SYSDATETIME();
+                        SET @Rows = @@ROWCOUNT;
+                        SET @TotalRows = @TotalRows + @Rows;
+                        SET @BatchCompletedAt = SYSDATETIME();
 
-                    INSERT INTO dbo.BlobDeltaRunStep
-                        (RunId, TableName, StepNumber, BatchNumber,
-                         RowsProcessed, TotalRowsProcessed,
-                         WindowStart, WindowEnd,
-                         BatchStartedAt, BatchCompletedAt,
-                         Status, ErrorMessage)
-                    VALUES
-                        (@RunId, @T_TableName, 1, @BatchNumber,
-                         @Rows, @TotalRows,
-                         @WindowStart, @WindowEnd,
-                         @BatchStartedAt, @BatchCompletedAt,
-                         N'InProgress', NULL);
+                        INSERT INTO dbo.BlobDeltaRunStep
+                            (RunId, TableName, StepNumber, BatchNumber,
+                             RowsProcessed, TotalRowsProcessed,
+                             WindowStart, WindowEnd,
+                             BatchStartedAt, BatchCompletedAt,
+                             Status, ErrorMessage)
+                        VALUES
+                            (@RunId, @T_TableName, 1, @BatchNumber,
+                             @Rows, @TotalRows,
+                             @WindowStart, @WindowEnd,
+                             @BatchStartedAt, @BatchCompletedAt,
+                             N'InProgress', NULL);
 
-                    IF @Rows = 0
-                    BEGIN
-                        IF @BatchNumber = 1
-                            PRINT N'Step 1 (Roots) for ' + @T_TableName + N': 0 rows in first batch. Check source/metadata data in window and LA_BU join.';
-                        BREAK;
-                    END
+                        IF @Rows = 0
+                        BEGIN
+                            IF @BatchNumber = 1
+                                PRINT N'Step 1 (Roots) for ' + @T_TableName + N': 0 rows in first batch. Check source/metadata data in window and LA_BU join.';
+                            BREAK;
+                        END
+                    END TRY
+                    BEGIN CATCH
+                        DECLARE @S1_ErrMsg       nvarchar(max) = ERROR_MESSAGE();
+                        DECLARE @S1_ErrNumber    int           = ERROR_NUMBER();
+                        DECLARE @S1_ErrSeverity  int           = ERROR_SEVERITY();
+                        DECLARE @S1_ErrState     int           = ERROR_STATE();
+                        DECLARE @S1_ErrLine      int           = ERROR_LINE();
+                        DECLARE @S1_ErrProcedure sysname       = ERROR_PROCEDURE();
+
+                        DECLARE @S1_PolicyIsFatal bit          = NULL;
+                        DECLARE @S1_PolicyScope   nvarchar(20) = NULL;
+
+                        ;WITH Policy AS (
+                            SELECT TOP (1)
+                                p.IsFatal,
+                                p.ErrorScope
+                            FROM dbo.BlobDeltaErrorPolicy p
+                            WHERE (p.AppliesToTableName IS NULL OR p.AppliesToTableName = @T_TableName)
+                              AND (p.AppliesToStep      IS NULL OR p.AppliesToStep      = 1)
+                              AND (p.ErrorNumber        IS NULL OR p.ErrorNumber        = @S1_ErrNumber)
+                              AND (p.ErrorMessagePattern IS NULL OR @S1_ErrMsg LIKE p.ErrorMessagePattern)
+                            ORDER BY
+                                CASE WHEN p.AppliesToTableName   IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.AppliesToStep        IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.ErrorNumber          IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.ErrorMessagePattern  IS NULL THEN 1 ELSE 0 END
+                        )
+                        SELECT
+                            @S1_PolicyIsFatal = IsFatal,
+                            @S1_PolicyScope   = ErrorScope
+                        FROM Policy;
+
+                        DECLARE @S1_IsFatal bit = 1;
+                        IF @S1_PolicyIsFatal IS NOT NULL
+                        BEGIN
+                            SET @S1_IsFatal = @S1_PolicyIsFatal;
+                        END
+
+                        IF @S1_PolicyScope IS NULL
+                        BEGIN
+                            SET @S1_PolicyScope = N'Batch';
+                        END
+
+                        INSERT INTO dbo.BlobDeltaErrorLog
+                            (RunId, TableName, StepNumber, BatchNumber,
+                             ErrorScope, ErrorNumber, ErrorSeverity, ErrorState, ErrorLine, ErrorProcedure,
+                             ErrorMessage, SourceKey, OccurredAt)
+                        VALUES
+                            (@RunId, @T_TableName, 1, @BatchNumber,
+                             @S1_PolicyScope, @S1_ErrNumber, @S1_ErrSeverity, @S1_ErrState, @S1_ErrLine, @S1_ErrProcedure,
+                             @S1_ErrMsg, NULL, SYSDATETIME());
+
+                        IF @S1_IsFatal = 1
+                        BEGIN
+                            THROW;
+                        END
+                        ELSE
+                        BEGIN
+                            SET @BatchCompletedAt = SYSDATETIME();
+
+                            INSERT INTO dbo.BlobDeltaRunStep
+                                (RunId, TableName, StepNumber, BatchNumber,
+                                 RowsProcessed, TotalRowsProcessed,
+                                 WindowStart, WindowEnd,
+                                 BatchStartedAt, BatchCompletedAt,
+                                 Status, ErrorMessage)
+                            VALUES
+                                (@RunId, @T_TableName, 1, @BatchNumber,
+                                 0, ISNULL(@TotalRows, 0),
+                                 @WindowStart, @WindowEnd,
+                                 @BatchStartedAt, @BatchCompletedAt,
+                                 N'Error', @S1_ErrMsg);
+
+                            RAISERROR(N'Non-fatal batch error in Step 1 (Roots) for table ''%s'', batch %d: %s', 10, 1, @T_TableName, @BatchNumber, @S1_ErrMsg) WITH NOWAIT;
+                        END
+                    END CATCH;
                 END;
 
                 INSERT INTO dbo.BlobDeltaRunStep
@@ -542,35 +619,125 @@ BEGIN
                         BREAK;
                     END
 
-                    EXEC sp_executesql @Sql,
-                        N'@BatchSize int',
-                        @BatchSize = @EffectiveBatchSize;
+                    BEGIN TRY
+                        EXEC sp_executesql @Sql,
+                            N'@BatchSize int',
+                            @BatchSize = @EffectiveBatchSize;
 
-                    SET @Rows = @@ROWCOUNT;
-                    SET @TotalRows = @TotalRows + @Rows;
-                    SET @BatchCompletedAt = SYSDATETIME();
+                        SET @Rows = @@ROWCOUNT;
+                        SET @TotalRows = @TotalRows + @Rows;
+                        SET @BatchCompletedAt = SYSDATETIME();
 
-                    UPDATE Q
-                    SET Processed = 1
-                    FROM dbo.BlobDeltaMissingParentsQueue Q
-                    WHERE Q.RunId = @RunId
-                      AND Q.TableName = @T_TableName
-                      AND Q.stream_id IN (SELECT stream_id FROM #Batch);
+                        UPDATE Q
+                        SET Processed = 1
+                        FROM dbo.BlobDeltaMissingParentsQueue Q
+                        WHERE Q.RunId = @RunId
+                          AND Q.TableName = @T_TableName
+                          AND Q.stream_id IN (SELECT stream_id FROM #Batch);
 
-                    INSERT INTO dbo.BlobDeltaRunStep
-                        (RunId, TableName, StepNumber, BatchNumber,
-                         RowsProcessed, TotalRowsProcessed,
-                         WindowStart, WindowEnd,
-                         BatchStartedAt, BatchCompletedAt,
-                         Status, ErrorMessage)
-                    VALUES
-                        (@RunId, @T_TableName, 2, @BatchNumber,
-                         @Rows, @TotalRows,
-                         @WindowStart, @WindowEnd,
-                         @BatchStartedAt, @BatchCompletedAt,
-                         N'InProgress', NULL);
+                        INSERT INTO dbo.BlobDeltaRunStep
+                            (RunId, TableName, StepNumber, BatchNumber,
+                             RowsProcessed, TotalRowsProcessed,
+                             WindowStart, WindowEnd,
+                             BatchStartedAt, BatchCompletedAt,
+                             Status, ErrorMessage)
+                        VALUES
+                            (@RunId, @T_TableName, 2, @BatchNumber,
+                             @Rows, @TotalRows,
+                             @WindowStart, @WindowEnd,
+                             @BatchStartedAt, @BatchCompletedAt,
+                             N'InProgress', NULL);
 
-                    DROP TABLE #Batch;
+                        DROP TABLE #Batch;
+                    END TRY
+                    BEGIN CATCH
+                        DECLARE @S2_ErrMsg       nvarchar(max) = ERROR_MESSAGE();
+                        DECLARE @S2_ErrNumber    int           = ERROR_NUMBER();
+                        DECLARE @S2_ErrSeverity  int           = ERROR_SEVERITY();
+                        DECLARE @S2_ErrState     int           = ERROR_STATE();
+                        DECLARE @S2_ErrLine      int           = ERROR_LINE();
+                        DECLARE @S2_ErrProcedure sysname       = ERROR_PROCEDURE();
+
+                        DECLARE @S2_PolicyIsFatal bit          = NULL;
+                        DECLARE @S2_PolicyScope   nvarchar(20) = NULL;
+
+                        ;WITH Policy AS (
+                            SELECT TOP (1)
+                                p.IsFatal,
+                                p.ErrorScope
+                            FROM dbo.BlobDeltaErrorPolicy p
+                            WHERE (p.AppliesToTableName IS NULL OR p.AppliesToTableName = @T_TableName)
+                              AND (p.AppliesToStep      IS NULL OR p.AppliesToStep      = 2)
+                              AND (p.ErrorNumber        IS NULL OR p.ErrorNumber        = @S2_ErrNumber)
+                              AND (p.ErrorMessagePattern IS NULL OR @S2_ErrMsg LIKE p.ErrorMessagePattern)
+                            ORDER BY
+                                CASE WHEN p.AppliesToTableName   IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.AppliesToStep        IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.ErrorNumber          IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.ErrorMessagePattern  IS NULL THEN 1 ELSE 0 END
+                        )
+                        SELECT
+                            @S2_PolicyIsFatal = IsFatal,
+                            @S2_PolicyScope   = ErrorScope
+                        FROM Policy;
+
+                        DECLARE @S2_IsFatal bit = 1;
+                        IF @S2_PolicyIsFatal IS NOT NULL
+                        BEGIN
+                            SET @S2_IsFatal = @S2_PolicyIsFatal;
+                        END
+
+                        IF @S2_PolicyScope IS NULL
+                        BEGIN
+                            SET @S2_PolicyScope = N'Batch';
+                        END
+
+                        INSERT INTO dbo.BlobDeltaErrorLog
+                            (RunId, TableName, StepNumber, BatchNumber,
+                             ErrorScope, ErrorNumber, ErrorSeverity, ErrorState, ErrorLine, ErrorProcedure,
+                             ErrorMessage, SourceKey, OccurredAt)
+                        VALUES
+                            (@RunId, @T_TableName, 2, @BatchNumber,
+                             @S2_PolicyScope, @S2_ErrNumber, @S2_ErrSeverity, @S2_ErrState, @S2_ErrLine, @S2_ErrProcedure,
+                             @S2_ErrMsg, NULL, SYSDATETIME());
+
+                        IF @S2_IsFatal = 1
+                        BEGIN
+                            IF OBJECT_ID('tempdb..#Batch') IS NOT NULL
+                                DROP TABLE #Batch;
+                            THROW;
+                        END
+                        ELSE
+                        BEGIN
+                            SET @BatchCompletedAt = SYSDATETIME();
+
+                            -- Mark this batch's queue entries as processed so they are not retried.
+                            UPDATE Q
+                            SET Processed = 1
+                            FROM dbo.BlobDeltaMissingParentsQueue Q
+                            WHERE Q.RunId = @RunId
+                              AND Q.TableName = @T_TableName
+                              AND Q.stream_id IN (SELECT stream_id FROM #Batch);
+
+                            INSERT INTO dbo.BlobDeltaRunStep
+                                (RunId, TableName, StepNumber, BatchNumber,
+                                 RowsProcessed, TotalRowsProcessed,
+                                 WindowStart, WindowEnd,
+                                 BatchStartedAt, BatchCompletedAt,
+                                 Status, ErrorMessage)
+                            VALUES
+                                (@RunId, @T_TableName, 2, @BatchNumber,
+                                 0, ISNULL(@TotalRows, 0),
+                                 @WindowStart, @WindowEnd,
+                                 @BatchStartedAt, @BatchCompletedAt,
+                                 N'Error', @S2_ErrMsg);
+
+                            IF OBJECT_ID('tempdb..#Batch') IS NOT NULL
+                                DROP TABLE #Batch;
+
+                            RAISERROR(N'Non-fatal batch error in Step 2 (MissingParents) for table ''%s'', batch %d: %s', 10, 1, @T_TableName, @BatchNumber, @S2_ErrMsg) WITH NOWAIT;
+                        END
+                    END CATCH;
                 END;
 
                 INSERT INTO dbo.BlobDeltaRunStep
@@ -649,34 +816,111 @@ BEGIN
                         BREAK;
                     END
 
-                    EXEC sp_executesql @Sql,
-                        N'@BatchSize int,
-                          @ExcludedStreamId uniqueidentifier,
-                          @WindowStart datetime2(7),
-                          @WindowEnd datetime2(7)',
-                        @BatchSize      = @EffectiveBatchSize,
-                        @ExcludedStreamId = @ExcludedStreamId,
-                        @WindowStart    = @WindowStart,
-                        @WindowEnd      = @WindowEnd;
+                    BEGIN TRY
+                        EXEC sp_executesql @Sql,
+                            N'@BatchSize int,
+                              @ExcludedStreamId uniqueidentifier,
+                              @WindowStart datetime2(7),
+                              @WindowEnd datetime2(7)',
+                            @BatchSize      = @EffectiveBatchSize,
+                            @ExcludedStreamId = @ExcludedStreamId,
+                            @WindowStart    = @WindowStart,
+                            @WindowEnd      = @WindowEnd;
 
-                    SET @Rows = @@ROWCOUNT;
-                    SET @TotalRows = @TotalRows + @Rows;
-                    SET @BatchCompletedAt = SYSDATETIME();
+                        SET @Rows = @@ROWCOUNT;
+                        SET @TotalRows = @TotalRows + @Rows;
+                        SET @BatchCompletedAt = SYSDATETIME();
 
-                    INSERT INTO dbo.BlobDeltaRunStep
-                        (RunId, TableName, StepNumber, BatchNumber,
-                         RowsProcessed, TotalRowsProcessed,
-                         WindowStart, WindowEnd,
-                         BatchStartedAt, BatchCompletedAt,
-                         Status, ErrorMessage)
-                    VALUES
-                        (@RunId, @T_TableName, 3, @BatchNumber,
-                         @Rows, @TotalRows,
-                         @WindowStart, @WindowEnd,
-                         @BatchStartedAt, @BatchCompletedAt,
-                         N'InProgress', NULL);
+                        INSERT INTO dbo.BlobDeltaRunStep
+                            (RunId, TableName, StepNumber, BatchNumber,
+                             RowsProcessed, TotalRowsProcessed,
+                             WindowStart, WindowEnd,
+                             BatchStartedAt, BatchCompletedAt,
+                             Status, ErrorMessage)
+                        VALUES
+                            (@RunId, @T_TableName, 3, @BatchNumber,
+                             @Rows, @TotalRows,
+                             @WindowStart, @WindowEnd,
+                             @BatchStartedAt, @BatchCompletedAt,
+                             N'InProgress', NULL);
 
-                    IF @Rows = 0 BREAK;
+                        IF @Rows = 0 BREAK;
+                    END TRY
+                    BEGIN CATCH
+                        DECLARE @S3_ErrMsg       nvarchar(max) = ERROR_MESSAGE();
+                        DECLARE @S3_ErrNumber    int           = ERROR_NUMBER();
+                        DECLARE @S3_ErrSeverity  int           = ERROR_SEVERITY();
+                        DECLARE @S3_ErrState     int           = ERROR_STATE();
+                        DECLARE @S3_ErrLine      int           = ERROR_LINE();
+                        DECLARE @S3_ErrProcedure sysname       = ERROR_PROCEDURE();
+
+                        DECLARE @S3_PolicyIsFatal bit          = NULL;
+                        DECLARE @S3_PolicyScope   nvarchar(20) = NULL;
+
+                        ;WITH Policy AS (
+                            SELECT TOP (1)
+                                p.IsFatal,
+                                p.ErrorScope
+                            FROM dbo.BlobDeltaErrorPolicy p
+                            WHERE (p.AppliesToTableName IS NULL OR p.AppliesToTableName = @T_TableName)
+                              AND (p.AppliesToStep      IS NULL OR p.AppliesToStep      = 3)
+                              AND (p.ErrorNumber        IS NULL OR p.ErrorNumber        = @S3_ErrNumber)
+                              AND (p.ErrorMessagePattern IS NULL OR @S3_ErrMsg LIKE p.ErrorMessagePattern)
+                            ORDER BY
+                                CASE WHEN p.AppliesToTableName   IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.AppliesToStep        IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.ErrorNumber          IS NULL THEN 1 ELSE 0 END,
+                                CASE WHEN p.ErrorMessagePattern  IS NULL THEN 1 ELSE 0 END
+                        )
+                        SELECT
+                            @S3_PolicyIsFatal = IsFatal,
+                            @S3_PolicyScope   = ErrorScope
+                        FROM Policy;
+
+                        DECLARE @S3_IsFatal bit = 1;
+                        IF @S3_PolicyIsFatal IS NOT NULL
+                        BEGIN
+                            SET @S3_IsFatal = @S3_PolicyIsFatal;
+                        END
+
+                        IF @S3_PolicyScope IS NULL
+                        BEGIN
+                            SET @S3_PolicyScope = N'Batch';
+                        END
+
+                        INSERT INTO dbo.BlobDeltaErrorLog
+                            (RunId, TableName, StepNumber, BatchNumber,
+                             ErrorScope, ErrorNumber, ErrorSeverity, ErrorState, ErrorLine, ErrorProcedure,
+                             ErrorMessage, SourceKey, OccurredAt)
+                        VALUES
+                            (@RunId, @T_TableName, 3, @BatchNumber,
+                             @S3_PolicyScope, @S3_ErrNumber, @S3_ErrSeverity, @S3_ErrState, @S3_ErrLine, @S3_ErrProcedure,
+                             @S3_ErrMsg, NULL, SYSDATETIME());
+
+                        IF @S3_IsFatal = 1
+                        BEGIN
+                            THROW;
+                        END
+                        ELSE
+                        BEGIN
+                            SET @BatchCompletedAt = SYSDATETIME();
+
+                            INSERT INTO dbo.BlobDeltaRunStep
+                                (RunId, TableName, StepNumber, BatchNumber,
+                                 RowsProcessed, TotalRowsProcessed,
+                                 WindowStart, WindowEnd,
+                                 BatchStartedAt, BatchCompletedAt,
+                                 Status, ErrorMessage)
+                            VALUES
+                                (@RunId, @T_TableName, 3, @BatchNumber,
+                                 0, ISNULL(@TotalRows, 0),
+                                 @WindowStart, @WindowEnd,
+                                 @BatchStartedAt, @BatchCompletedAt,
+                                 N'Error', @S3_ErrMsg);
+
+                            RAISERROR(N'Non-fatal batch error in Step 3 (Children) for table ''%s'', batch %d: %s', 10, 1, @T_TableName, @BatchNumber, @S3_ErrMsg) WITH NOWAIT;
+                        END
+                    END CATCH;
                 END;
 
                 INSERT INTO dbo.BlobDeltaRunStep
@@ -714,8 +958,58 @@ BEGIN
             RAISERROR(N'Completed processing for table ''%s''.', 10, 1, @T_TableName) WITH NOWAIT;
         END TRY
         BEGIN CATCH
-            DECLARE @ErrMsg nvarchar(max) = ERROR_MESSAGE();
+            DECLARE @ErrMsg        nvarchar(max) = ERROR_MESSAGE();
+            DECLARE @ErrNumber     int           = ERROR_NUMBER();
+            DECLARE @ErrSeverity   int           = ERROR_SEVERITY();
+            DECLARE @ErrState      int           = ERROR_STATE();
+            DECLARE @ErrLine       int           = ERROR_LINE();
+            DECLARE @ErrProcedure  sysname       = ERROR_PROCEDURE();
 
+            DECLARE @PolicyIsFatal bit           = NULL;
+            DECLARE @PolicyScope   nvarchar(20)  = NULL;
+
+            ;WITH Policy AS (
+                SELECT TOP (1)
+                    p.IsFatal,
+                    p.ErrorScope
+                FROM dbo.BlobDeltaErrorPolicy p
+                WHERE (p.AppliesToTableName IS NULL OR p.AppliesToTableName = @T_TableName)
+                  AND (p.AppliesToStep      IS NULL OR p.AppliesToStep      = ISNULL(@CurrentStep, 0))
+                  AND (p.ErrorNumber        IS NULL OR p.ErrorNumber        = @ErrNumber)
+                  AND (p.ErrorMessagePattern IS NULL OR @ErrMsg LIKE p.ErrorMessagePattern)
+                ORDER BY
+                    CASE WHEN p.AppliesToTableName   IS NULL THEN 1 ELSE 0 END,
+                    CASE WHEN p.AppliesToStep        IS NULL THEN 1 ELSE 0 END,
+                    CASE WHEN p.ErrorNumber          IS NULL THEN 1 ELSE 0 END,
+                    CASE WHEN p.ErrorMessagePattern  IS NULL THEN 1 ELSE 0 END
+            )
+            SELECT
+                @PolicyIsFatal = IsFatal,
+                @PolicyScope   = ErrorScope
+            FROM Policy;
+
+            DECLARE @IsFatal bit = 1;
+            IF @PolicyIsFatal IS NOT NULL
+            BEGIN
+                SET @IsFatal = @PolicyIsFatal;
+            END
+
+            IF @PolicyScope IS NULL
+            BEGIN
+                SET @PolicyScope = N'Table';
+            END
+
+            -- Always log the error detail to BlobDeltaErrorLog.
+            INSERT INTO dbo.BlobDeltaErrorLog
+                (RunId, TableName, StepNumber, BatchNumber,
+                 ErrorScope, ErrorNumber, ErrorSeverity, ErrorState, ErrorLine, ErrorProcedure,
+                 ErrorMessage, SourceKey, OccurredAt)
+            VALUES
+                (@RunId, @T_TableName, ISNULL(@CurrentStep, 0), ISNULL(@BatchNumber, 0),
+                 @PolicyScope, @ErrNumber, @ErrSeverity, @ErrState, @ErrLine, @ErrProcedure,
+                 @ErrMsg, NULL, SYSDATETIME());
+
+            -- Record a failure summary step for this table.
             INSERT INTO dbo.BlobDeltaRunStep
                 (RunId, TableName, StepNumber, BatchNumber,
                  RowsProcessed, TotalRowsProcessed,
@@ -729,7 +1023,8 @@ BEGIN
                  @WindowStart, @WindowEnd,
                  ISNULL(@BatchStartedAt, SYSDATETIME()),
                  SYSDATETIME(),
-                 N'Failed', @ErrMsg);
+                 CASE WHEN @IsFatal = 1 THEN N'Failed' ELSE N'FailedNonFatal' END,
+                 @ErrMsg);
 
             IF @DryRun = 0
             BEGIN
@@ -739,16 +1034,24 @@ BEGIN
                 WHERE TableName = @T_TableName;
             END
 
-            UPDATE dbo.BlobDeltaRun
-            SET Status       = N'Failed',
-                ErrorMessage = COALESCE(ErrorMessage + N'; ', N'') + @ErrMsg,
-                RunCompletedAt = SYSDATETIME()
-            WHERE RunId = @RunId;
+            IF @IsFatal = 1
+            BEGIN
+                UPDATE dbo.BlobDeltaRun
+                SET Status       = N'Failed',
+                    ErrorMessage = COALESCE(ErrorMessage + N'; ', N'') + @ErrMsg,
+                    RunCompletedAt = SYSDATETIME()
+                WHERE RunId = @RunId;
 
-            CLOSE table_cursor;
-            DEALLOCATE table_cursor;
+                CLOSE table_cursor;
+                DEALLOCATE table_cursor;
 
-            THROW;
+                THROW;
+            END
+            ELSE
+            BEGIN
+                -- Non-fatal error at table scope: log and continue with remaining tables.
+                RAISERROR(N'Non-fatal error for table ''%s'': %s', 10, 1, @T_TableName, @ErrMsg) WITH NOWAIT;
+            END
         END CATCH;
 
         FETCH NEXT FROM table_cursor INTO @T_TableName;
@@ -759,8 +1062,19 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM dbo.BlobDeltaRun WHERE RunId = @RunId AND Status = N'Failed')
     BEGIN
+        DECLARE @HasNonFatalErrors bit = 0;
+
+        IF EXISTS (
+            SELECT 1
+            FROM dbo.BlobDeltaErrorLog el
+            WHERE el.RunId = @RunId
+        )
+        BEGIN
+            SET @HasNonFatalErrors = 1;
+        END
+
         UPDATE dbo.BlobDeltaRun
-        SET Status = N'Succeeded',
+        SET Status = CASE WHEN @HasNonFatalErrors = 1 THEN N'SucceededWithErrors' ELSE N'Succeeded' END,
             RunCompletedAt = SYSDATETIME()
         WHERE RunId = @RunId;
     END

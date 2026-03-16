@@ -281,6 +281,85 @@ BEGIN
 END;
 GO
 
-PRINT N'BlobDeltaJobs core schema created/verified successfully.';
+-- -----------------------------------------------------------------------------
+-- 7. Error logging (per-run, per-table/step/batch)
+-- -----------------------------------------------------------------------------
+
+IF OBJECT_ID(N'dbo.BlobDeltaErrorLog', N'U') IS NULL
+BEGIN
+    PRINT N'Creating dbo.BlobDeltaErrorLog...';
+    CREATE TABLE dbo.BlobDeltaErrorLog
+    (
+        ErrorId         int             NOT NULL IDENTITY(1,1)
+            CONSTRAINT PK_BlobDeltaErrorLog PRIMARY KEY,
+
+        RunId           uniqueidentifier NOT NULL
+            REFERENCES dbo.BlobDeltaRun (RunId),
+
+        TableName       sysname         NULL,
+        StepNumber      tinyint         NULL,
+        BatchNumber     int             NULL,
+
+        ErrorScope      nvarchar(20)    NOT NULL,
+            -- e.g. 'Table','Batch','Row'.
+
+        ErrorNumber     int             NULL,
+        ErrorSeverity   int             NULL,
+        ErrorState      int             NULL,
+        ErrorLine       int             NULL,
+        ErrorProcedure  sysname         NULL,
+
+        ErrorMessage    nvarchar(max)   NOT NULL,
+
+        SourceKey       nvarchar(256)   NULL,
+            -- Optional: business key or stream_id text for row-level context.
+
+        OccurredAt      datetime2(7)    NOT NULL
+            CONSTRAINT DF_BlobDeltaErrorLog_OccurredAt DEFAULT (SYSDATETIME())
+    );
+
+    CREATE NONCLUSTERED INDEX IX_BlobDeltaErrorLog_Run_Table_Step_Batch
+        ON dbo.BlobDeltaErrorLog (RunId, TableName, StepNumber, BatchNumber, OccurredAt);
+END;
 GO
 
+-- -----------------------------------------------------------------------------
+-- 8. Error handling policy (fatal vs non-fatal classification)
+-- -----------------------------------------------------------------------------
+
+IF OBJECT_ID(N'dbo.BlobDeltaErrorPolicy', N'U') IS NULL
+BEGIN
+    PRINT N'Creating dbo.BlobDeltaErrorPolicy...';
+    CREATE TABLE dbo.BlobDeltaErrorPolicy
+    (
+        ErrorPolicyId       int             NOT NULL IDENTITY(1,1)
+            CONSTRAINT PK_BlobDeltaErrorPolicy PRIMARY KEY,
+
+        ErrorNumber         int             NULL,
+            -- When NULL, classification may be driven by ErrorMessagePattern only.
+
+        ErrorMessagePattern nvarchar(4000)  NULL,
+            -- Used with LIKE for pattern-based matching; NULL = match by ErrorNumber only.
+
+        AppliesToStep       tinyint         NULL,
+            -- NULL = all steps; otherwise restrict to a specific StepNumber.
+
+        AppliesToTableName  sysname         NULL,
+            -- NULL = all tables; otherwise restrict classification to specific logical table.
+
+        IsFatal             bit             NOT NULL,
+            -- 1 = treat matching errors as fatal; 0 = non-fatal (log and continue).
+
+        ErrorScope          nvarchar(20)    NOT NULL,
+            -- e.g. 'Table','Batch','Row' – indicates intended scope for handling.
+
+        Notes               nvarchar(512)   NULL
+    );
+
+    CREATE NONCLUSTERED INDEX IX_BlobDeltaErrorPolicy_Lookup
+        ON dbo.BlobDeltaErrorPolicy (ErrorNumber, AppliesToTableName, AppliesToStep);
+END;
+GO
+
+PRINT N'BlobDeltaJobs core schema created/verified successfully.';
+GO
