@@ -23,7 +23,7 @@ GO
 -- -----------------------------------------------------------------------------
 -- Configuration defaults (adjust and rerun to seed for other databases)
 -- -----------------------------------------------------------------------------
-DECLARE @FileTableDatabase sysname = N'Gwent_LA_FileTable';   -- Target FileTable DB (e.g. per BU/tenant)
+DECLARE @FileTableDatabase sysname = N'LANameHere_LA_FileTable';   -- Target FileTable DB (e.g. per BU/tenant)
 DECLARE @FileTableSchema   sysname = N'dbo';
 
 DECLARE @ReferralTableName     sysname = N'ReferralAttachment';
