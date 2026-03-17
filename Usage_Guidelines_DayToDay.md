@@ -185,5 +185,30 @@ DECLARE
 **Summary:**  
 Just update the `@DbName` value at the top of the backup script, then execute the script against your SQL Server instance.
 
+### Step 3: Truncate the Database
+
+In order to manage resources effectively - there will be a need to run the truncate script in order to empty the filetables of the database we have extracted ready for subsequent re-use. Because of timings, this may/may not be necessary - as another database restore of the blob database may necessitate a database refresh anyway (please see Step 1 above). In order to truncate the filetables please see below:
+
+To truncate (i.e., empty) all FILETABLE data for an LA FileTable database, use the provided destructive truncate script at [`Destructive Scripts/DropFileTablesInDatabase.sql`](./Destructive%20Scripts/DropFileTablesInDatabase.sql).
+
+**Usage:**
+
+- **Only one line to change:** At the very top of the script, set the `@TargetDatabase` variable to the name of the database you want to empty, e.g.:
+  ```
+  DECLARE @TargetDatabase sysname = N'YnysMon_LA_FileTable'; -- <- Change this to your LA FileTable DB
+  ```
+- After setting `@TargetDatabase`, run the script in SQL Server Management Studio (SSMS) or your preferred SQL environment.
+
+**What this script does:**
+- Deletes all rows from every FILETABLE in the target database (excluding the implicit root folder row).
+- Attempts to force FILESTREAM garbage collection in the database. This triggers cleanup of deleted blob files on disk.
+
+**Important Notes:**
+- **Data is unrecoverable after this operation.** Ensure backups are taken if required.
+- **Space is not immediately freed.** While the script forces FILESTREAM garbage collection, Windows may not immediately reclaim disk space in all scenarios. You might observe freed space with a short delay, depending on the SQL Server version and system activity.
+- No other changes are needed in the script unless you want to change advanced options.
+
+**Summary:**  
+To safely and completely empty an LA's FileTable database for re-use, simply set the `@TargetDatabase` variable to your database name at the top of the script, then execute it. Allow for some time for disk space to be reclaimed due to the way FILESTREAM garbage collection behaves.
 
 
