@@ -24,7 +24,7 @@ SET QUOTED_IDENTIFIER ON;
 -- ============================================================================
 -- CONFIGURATION VARIABLES - Update these for your environment
 -- ============================================================================
-DECLARE @TargetDatabase         sysname        = N'YnysMon_LA_FileTable';  -- The database that will host the FILETABLEs
+DECLARE @TargetDatabase         sysname        = N'LANameHere_LA_FileTable';  -- The database that will host the FILETABLEs
 DECLARE @DataFilePath           nvarchar(260)  = N'H:\MSSQL\MSSQL15.MSSQLSERVER\MSSQL\DATA';  -- Path for database data files (.mdf)
 DECLARE @LogFilePath            nvarchar(260)  = N'E:\MSSQL\MSSQL15.MSSQLSERVER\MSSQL\Log';     -- Path for database log files (.ldf)
 DECLARE @FileStreamPath         nvarchar(260)  = N'F:\MSSQL\MSSQL15.MSSQLSERVER\MSSQL\FileStream\' + @TargetDatabase;  -- Path for FILESTREAM data
