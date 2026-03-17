@@ -178,6 +178,39 @@ END;';
 EXEC (@Sql);
 
 -------------------------------------------------------------------------------
+-- Step 4a: Ensure LA_BU.businessunit is unique via index
+-------------------------------------------------------------------------------
+SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
+IF EXISTS (
+    SELECT 1
+    FROM sys.tables t
+    WHERE t.name = N''LA_BU''
+      AND SCHEMA_NAME(t.schema_id) = N''dbo''
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes i
+    WHERE i.name = N''IX_LA_BU_businessunit''
+      AND i.object_id = OBJECT_ID(N''dbo.LA_BU'')
+)
+BEGIN
+    PRINT ''Creating unique index [IX_LA_BU_businessunit] on [dbo].[LA_BU]([businessunit])...'';
+    CREATE UNIQUE NONCLUSTERED INDEX [IX_LA_BU_businessunit]
+    ON [dbo].[LA_BU]([businessunit]);
+END
+ELSE IF EXISTS (
+    SELECT 1
+    FROM sys.indexes i
+    WHERE i.name = N''IX_LA_BU_businessunit''
+      AND i.object_id = OBJECT_ID(N''dbo.LA_BU'')
+)
+BEGIN
+    PRINT ''Unique index [IX_LA_BU_businessunit] on [dbo].[LA_BU] already exists. Skipping creation.'';
+END;';
+
+EXEC (@Sql);
+
+-------------------------------------------------------------------------------
 -- Step 5: Create the ReferralAttachment FILETABLE if it does not already exist
 -------------------------------------------------------------------------------
 SET @Sql = N'USE ' + QUOTENAME(@TargetDatabase) + N';
