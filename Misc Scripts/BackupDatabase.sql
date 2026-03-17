@@ -33,7 +33,7 @@
 DECLARE
       @DbName         sysname        = N'LANameHere_LA_FileTable'               -- database to back up
     , @BackupPath     nvarchar(260)  = N'D:\MSSQL\MSSQL15.MSSQLSERVER\MSSQL\'   -- must end with backslash
-    , @StripeCount    int            = 8                                        -- number of .bak files
+    , @StripeCount    int            = 4                                        -- number of .bak files
     , @UseCompression bit            = 1                                        -- 1 = use COMPRESSION
     , @UseChecksum    bit            = 1                                        -- 1 = use CHECKSUM
     , @Overwrite      bit            = 1                                        -- 1 = INIT (overwrite)
