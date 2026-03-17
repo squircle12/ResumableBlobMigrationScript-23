@@ -922,22 +922,25 @@ IF DB_ID(N'BlobDeltaJobs') IS NOT NULL
 BEGIN
     PRINT N'Ensuring BlobDeltaTargetDatabases is seeded for ' + QUOTENAME(@TargetDatabase) + N' in BlobDeltaJobs...';
 
+    DECLARE @EscapedTargetDatabase       nvarchar(256) = REPLACE(@TargetDatabase, '''', '''''');
+    DECLARE @EscapedTargetDatabaseQuoted nvarchar(256) = REPLACE(QUOTENAME(@TargetDatabase), '''', '''''');
+
     EXEC (N'USE BlobDeltaJobs;
 IF OBJECT_ID(N''dbo.BlobDeltaTargetDatabases'', N''U'') IS NOT NULL
 BEGIN
     IF NOT EXISTS (
         SELECT 1
         FROM dbo.BlobDeltaTargetDatabases td
-        WHERE td.TargetDatabase = N''' + REPLACE(@TargetDatabase, '''', '''''') + N'''
+        WHERE td.TargetDatabase = N''' + @EscapedTargetDatabase + N'''
     )
     BEGIN
-        PRINT N''Seeding BlobDeltaTargetDatabases for ' + REPLACE(QUOTENAME(@TargetDatabase), '''', '''''') + N' with Extract = 1.'';
+        PRINT N''Seeding BlobDeltaTargetDatabases for ' + @EscapedTargetDatabaseQuoted + N' with Extract = 1.'';
         INSERT INTO dbo.BlobDeltaTargetDatabases (TargetDatabase, Extract)
-        VALUES (N''' + REPLACE(@TargetDatabase, '''', '''''') + N''', 1);
+        VALUES (N''' + @EscapedTargetDatabase + N''', 1);
     END
     ELSE
     BEGIN
-        PRINT N''BlobDeltaTargetDatabases already has an entry for ' + REPLACE(QUOTENAME(@TargetDatabase), '''', '''''') + N'. Preserving existing Extract setting.'';
+        PRINT N''BlobDeltaTargetDatabases already has an entry for ' + @EscapedTargetDatabaseQuoted + N'. Preserving existing Extract setting.'';
     END
 END
 ELSE

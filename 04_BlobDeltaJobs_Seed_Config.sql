@@ -958,12 +958,19 @@ WHEN MATCHED THEN
         t.IsFatal    = s.IsFatal,
         t.ErrorScope = s.ErrorScope,
         t.Notes      = s.Notes;
-GO
 
--------------------------------------------------------------------------------
 -- 5. Seed BlobDeltaTargetDatabases for @FileTableDatabase (insert-only)
--------------------------------------------------------------------------------
-IF OBJECT_ID(N'dbo.BlobDeltaTargetDatabases', N'U') IS NOT NULL
+DECLARE @FileTableDatabase sysname;
+
+SELECT TOP (1) @FileTableDatabase = TargetDatabase
+FROM dbo.BlobDeltaTableConfig
+ORDER BY TableName;
+
+IF @FileTableDatabase IS NULL
+BEGIN
+    PRINT N'Warning: Could not infer TargetDatabase from BlobDeltaTableConfig. Skipping BlobDeltaTargetDatabases seeding.';
+END
+ELSE IF OBJECT_ID(N'dbo.BlobDeltaTargetDatabases', N'U') IS NOT NULL
 BEGIN
     IF NOT EXISTS (
         SELECT 1
@@ -984,3 +991,4 @@ ELSE
 BEGIN
     PRINT N'Warning: dbo.BlobDeltaTargetDatabases does not exist. Run the BlobDeltaJobs schema script to create it.';
 END;
+GO

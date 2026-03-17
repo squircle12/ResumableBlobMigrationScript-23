@@ -123,11 +123,17 @@ BEGIN
     IF OBJECT_ID('tempdb..#TablesToProcess') IS NOT NULL
         DROP TABLE #TablesToProcess;
 
+    -- Create the temp table once to avoid "already an object named '#TablesToProcess'" errors
+    CREATE TABLE #TablesToProcess
+    (
+        TableName sysname NOT NULL PRIMARY KEY
+    );
+
     IF @TargetDatabase IS NOT NULL
     BEGIN
         -- Backwards-compatible behavior: restrict to a single TargetDatabase, ignore BlobDeltaTargetDatabases.
+        INSERT INTO #TablesToProcess (TableName)
         SELECT c.TableName
-        INTO #TablesToProcess
         FROM dbo.BlobDeltaTableConfig c
         WHERE c.IsActive = 1
           AND (@TableName IS NULL OR c.TableName = @TableName)
@@ -136,8 +142,8 @@ BEGIN
     ELSE
     BEGIN
         -- When @TargetDatabase is NULL, restrict to tables whose TargetDatabase appears in BlobDeltaTargetDatabases with Extract = 1.
+        INSERT INTO #TablesToProcess (TableName)
         SELECT c.TableName
-        INTO #TablesToProcess
         FROM dbo.BlobDeltaTableConfig c
         INNER JOIN #TargetDatabases td
             ON c.TargetDatabase = td.TargetDatabase
