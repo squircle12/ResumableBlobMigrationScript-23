@@ -913,3 +913,39 @@ END;';
 EXEC (@Sql);
 
 PRINT 'Script completed successfully for database ' + QUOTENAME(@TargetDatabase) + '.';
+
+-------------------------------------------------------------------------------
+-- Step 32: Ensure BlobDeltaTargetDatabases entry exists for this TargetDatabase
+--          (insert-only; do not overwrite existing Extract settings)
+-------------------------------------------------------------------------------
+IF DB_ID(N'BlobDeltaJobs') IS NOT NULL
+BEGIN
+    PRINT N'Ensuring BlobDeltaTargetDatabases is seeded for ' + QUOTENAME(@TargetDatabase) + N' in BlobDeltaJobs...';
+
+    EXEC (N'USE BlobDeltaJobs;
+IF OBJECT_ID(N''dbo.BlobDeltaTargetDatabases'', N''U'') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.BlobDeltaTargetDatabases td
+        WHERE td.TargetDatabase = N''' + REPLACE(@TargetDatabase, '''', '''''') + N'''
+    )
+    BEGIN
+        PRINT N''Seeding BlobDeltaTargetDatabases for ' + REPLACE(QUOTENAME(@TargetDatabase), '''', '''''') + N' with Extract = 1.'';
+        INSERT INTO dbo.BlobDeltaTargetDatabases (TargetDatabase, Extract)
+        VALUES (N''' + REPLACE(@TargetDatabase, '''', '''''') + N''', 1);
+    END
+    ELSE
+    BEGIN
+        PRINT N''BlobDeltaTargetDatabases already has an entry for ' + REPLACE(QUOTENAME(@TargetDatabase), '''', '''''') + N'. Preserving existing Extract setting.'';
+    END
+END
+ELSE
+BEGIN
+    PRINT N''Warning: dbo.BlobDeltaTargetDatabases does not exist in BlobDeltaJobs. Run the BlobDeltaJobs schema script to create it.'';
+END;');
+END
+ELSE
+BEGIN
+    PRINT N'Warning: BlobDeltaJobs database does not exist; skipping BlobDeltaTargetDatabases seeding.';
+END;

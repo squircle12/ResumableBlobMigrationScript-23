@@ -20,6 +20,7 @@ GO
 SET QUOTED_IDENTIFIER ON;
 GO
 
+
 -- -----------------------------------------------------------------------------
 -- Configuration defaults (adjust and rerun to seed for other databases)
 -- -----------------------------------------------------------------------------
@@ -959,3 +960,27 @@ WHEN MATCHED THEN
         t.Notes      = s.Notes;
 GO
 
+-------------------------------------------------------------------------------
+-- 5. Seed BlobDeltaTargetDatabases for @FileTableDatabase (insert-only)
+-------------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.BlobDeltaTargetDatabases', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.BlobDeltaTargetDatabases td
+        WHERE td.TargetDatabase = @FileTableDatabase
+    )
+    BEGIN
+        PRINT N'Seeding BlobDeltaTargetDatabases for ' + QUOTENAME(@FileTableDatabase) + N' with Extract = 1.';
+        INSERT INTO dbo.BlobDeltaTargetDatabases (TargetDatabase, Extract)
+        VALUES (@FileTableDatabase, 1);
+    END
+    ELSE
+    BEGIN
+        PRINT N'BlobDeltaTargetDatabases already has an entry for ' + QUOTENAME(@FileTableDatabase) + N'. Preserving existing Extract setting.';
+    END
+END
+ELSE
+BEGIN
+    PRINT N'Warning: dbo.BlobDeltaTargetDatabases does not exist. Run the BlobDeltaJobs schema script to create it.';
+END;

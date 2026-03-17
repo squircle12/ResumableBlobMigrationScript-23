@@ -361,5 +361,26 @@ BEGIN
 END;
 GO
 
+-- -----------------------------------------------------------------------------
+-- 9. Target database filter list for multi-database runs
+-- -----------------------------------------------------------------------------
+
+IF OBJECT_ID(N'dbo.BlobDeltaTargetDatabases', N'U') IS NULL
+BEGIN
+    PRINT N'Creating dbo.BlobDeltaTargetDatabases...';
+    CREATE TABLE dbo.BlobDeltaTargetDatabases
+    (
+        TargetDatabase sysname NOT NULL PRIMARY KEY,
+            -- Logical database name matching BlobDeltaTableConfig.TargetDatabase.
+
+        Extract       bit     NOT NULL
+            CONSTRAINT DF_BlobDeltaTargetDatabases_Extract DEFAULT (1)
+            -- When 1 and @TargetDatabase IS NULL, tables for this TargetDatabase
+            -- are eligible for processing; when 0, they are skipped unless the
+            -- caller explicitly specifies @TargetDatabase.
+    );
+END;
+GO
+
 PRINT N'BlobDeltaJobs core schema created/verified successfully.';
 GO

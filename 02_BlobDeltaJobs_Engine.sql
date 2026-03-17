@@ -68,11 +68,11 @@ GO
 CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_Run
     @RunId        uniqueidentifier = NULL OUTPUT,
     @RunType      nvarchar(20)     = N'Delta',  -- 'Full','Delta','DryRun'
-    @TableName    sysname          = NULL,      -- NULL = all active tables (or filtered by @TargetDatabase)
+    @TableName    sysname          = NULL,      -- NULL = all active tables (filtered by @TargetDatabase or BlobDeltaTargetDatabases)
     @BatchSize    int              = 5000,
     @MaxDOP       tinyint          = 1,
     @DryRun       bit              = 0,         -- If 1, print dynamic SQL instead of executing it
-    @TargetDatabase sysname        = NULL      -- Optional: filter to tables where TargetDatabase matches
+    @TargetDatabase sysname        = NULL      -- Optional: when NOT NULL, filter to a single TargetDatabase; when NULL, use BlobDeltaTargetDatabases (Extract = 1) to choose databases
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -99,16 +99,51 @@ BEGIN
         VALUES (@RunId, @RunType, @RequestedBy, @Now, N'InProgress');
     END
 
-    -- Determine tables to process for this run.
+    -- Determine target databases (when @TargetDatabase IS NULL) and tables to process for this run.
+    IF OBJECT_ID('tempdb..#TargetDatabases') IS NOT NULL
+        DROP TABLE #TargetDatabases;
+
+    IF @TargetDatabase IS NULL
+    BEGIN
+        SELECT DISTINCT c.TargetDatabase
+        INTO #TargetDatabases
+        FROM dbo.BlobDeltaTableConfig c
+        INNER JOIN dbo.BlobDeltaTargetDatabases td
+            ON td.TargetDatabase = c.TargetDatabase
+           AND td.Extract = 1
+        WHERE c.IsActive = 1;
+
+        IF NOT EXISTS (SELECT 1 FROM #TargetDatabases)
+        BEGIN
+            RAISERROR(N'No target databases with Extract = 1 found in BlobDeltaTargetDatabases that have active BlobDeltaTableConfig rows.', 16, 1) WITH NOWAIT;
+            RETURN;
+        END
+    END
+
     IF OBJECT_ID('tempdb..#TablesToProcess') IS NOT NULL
         DROP TABLE #TablesToProcess;
 
-    SELECT c.TableName
-    INTO #TablesToProcess
-    FROM dbo.BlobDeltaTableConfig c
-    WHERE c.IsActive = 1
-      AND (@TableName IS NULL OR c.TableName = @TableName)
-      AND (@TargetDatabase IS NULL OR c.TargetDatabase = @TargetDatabase);
+    IF @TargetDatabase IS NOT NULL
+    BEGIN
+        -- Backwards-compatible behavior: restrict to a single TargetDatabase, ignore BlobDeltaTargetDatabases.
+        SELECT c.TableName
+        INTO #TablesToProcess
+        FROM dbo.BlobDeltaTableConfig c
+        WHERE c.IsActive = 1
+          AND (@TableName IS NULL OR c.TableName = @TableName)
+          AND c.TargetDatabase = @TargetDatabase;
+    END
+    ELSE
+    BEGIN
+        -- When @TargetDatabase is NULL, restrict to tables whose TargetDatabase appears in BlobDeltaTargetDatabases with Extract = 1.
+        SELECT c.TableName
+        INTO #TablesToProcess
+        FROM dbo.BlobDeltaTableConfig c
+        INNER JOIN #TargetDatabases td
+            ON c.TargetDatabase = td.TargetDatabase
+        WHERE c.IsActive = 1
+          AND (@TableName IS NULL OR c.TableName = @TableName);
+    END
 
     -- Diagnostic: report how many tables will be processed (helps when no rows are created)
     DECLARE @TablesToProcessCount int = (SELECT COUNT(*) FROM #TablesToProcess);
@@ -118,6 +153,11 @@ BEGIN
         PRINT N'  - TableName = @TableName (e.g. YnysMon_LA_FileTable.dbo.ReferralAttachment)';
         PRINT N'  - TargetDatabase = @TargetDatabase when provided (e.g. YnysMon_LA_FileTable)';
         PRINT N'  - IsActive = 1. Run 04_BlobDeltaJobs_Seed_Config.sql for new databases with the correct @FileTableDatabase.';
+        IF @TargetDatabase IS NULL
+        BEGIN
+            PRINT N'When @TargetDatabase is NULL, tables are further filtered by BlobDeltaTargetDatabases where Extract = 1.';
+            PRINT N'Check that the desired TargetDatabase values are present in BlobDeltaTargetDatabases with Extract = 1.';
+        END
         -- Still complete the run (update BlobDeltaRun status) but do nothing else
     END
     ELSE
