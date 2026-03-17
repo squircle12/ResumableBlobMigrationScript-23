@@ -53,4 +53,95 @@ There are other parameters etc, but the basics are set the `RunType` to `'Full'`
 
 **TIP:** If a Full run fails to complete due to system issues, by its nature, the script is resumable, so re-executing the "Full" extract it will resume where it left off.
 
+#### Parameters in the stored procedure
+
+**`@RunType` and `@TargetDatabase` parameters**
+
+The core stored procedure for extraction, `[dbo].[usp_BlobDelta_Run]`, uses several key parameters, but the two main ones you'll most often work with are `@RunType` and `@TargetDatabase`:
+
+---
+
+### **@RunType**
+
+- **Purpose**:  
+  Determines the type of extraction you want to perform.
+- **Options**:  
+  - `'Full'` &mdash; Runs a full extract, bringing all eligible data into the target database (and resetting the "high water mark" for delta runs).
+  - `'Delta'` &mdash; Extracts only new or changed records since the last run, according to the high water mark.
+  - `'DryRun'` &mdash; Prints the dynamic SQL statements that would be executed, but *does not* modify or insert any data (useful for debugging).
+
+- **Typical Values**:  
+  `'Full'`, `'Delta'`, `'DryRun'`  
+  (Can also be passed as `N'Full'` etc. for explicit Unicode.)
+
+---
+
+### **@TargetDatabase**
+
+- **Purpose**:  
+  Specifies which FileTable database (e.g. for the relevant Local Authority/BU) you want to extract data *into*.
+- **Required/Optional**:  
+  Typically **required** for most extracts.  
+  If omitted or set to `NULL`, the engine will use active entries from the config table (`BlobDeltaTargetDatabases` with `Extract=1`) to determine which databases to process (usually not needed for day-to-day ops).
+
+- **Example Value**:  
+  `'Gwent_LA_FileTable'`, `'YnysMon_LA_FileTable'`, `'Wrexham_LA_FileTable'` (use the actual database name for your LA)
+
+---
+
+### **Examples**
+
+**Run a Full Extract for Gwent:**
+```
+DECLARE @return_value int, @RunId uniqueidentifier
+
+EXEC @return_value = [dbo].[usp_BlobDelta_Run]
+    @RunId = @RunId OUTPUT,
+    @RunType = N'Full',
+    @TargetDatabase = N'Gwent_LA_FileTable'
+
+SELECT @RunId as N'@RunId'
+SELECT 'Return Value' = @return_value
+```
+
+**Run a Delta Extract for Ynys Mon:**
+```
+DECLARE @return_value int, @RunId uniqueidentifier
+
+EXEC @return_value = [dbo].[usp_BlobDelta_Run]
+    @RunId = @RunId OUTPUT,
+    @RunType = N'Delta',
+    @TargetDatabase = N'YnysMon_LA_FileTable'
+
+SELECT @RunId as N'@RunId'
+SELECT 'Return Value' = @return_value
+```
+
+**Dry Run for Wrexham to Preview SQL (no data modifications):**
+```
+DECLARE @return_value int, @RunId uniqueidentifier
+
+EXEC @return_value = [dbo].[usp_BlobDelta_Run]
+    @RunId = @RunId OUTPUT,
+    @RunType = N'DryRun',
+    @TargetDatabase = N'Wrexham_LA_FileTable'
+
+SELECT @RunId as N'@RunId'
+SELECT 'Return Value' = @return_value
+```
+
+---
+
+**Summary Table:**
+
+| Parameter       | Description                                                     | Example Value                |
+|-----------------|-----------------------------------------------------------------|------------------------------|
+| `@RunType`      | Extract mode (`Full`, `Delta`, or `DryRun`)                     | `N'Full'` / `N'Delta'`       |
+| `@TargetDatabase` | Name of the destination LA FileTable database                 | `N'Gwent_LA_FileTable'`      |
+
+---
+
+**Recommendation:**  
+For day-to-day use, you'll most often use `@RunType = N'Full'` or `N'Delta'`, and always specify the correct `@TargetDatabase` for your LA's filetable DB.
+
 
