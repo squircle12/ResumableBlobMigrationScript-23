@@ -97,7 +97,7 @@ Determines the type of extraction you want to perform.
 Specifies which FileTable database (e.g. for the relevant Local Authority/BU) you want to extract data *into*.
 - **Required/Optional**:  
 Typically **required** for most extracts.  
-If omitted or set to `NULL`, the engine will use active entries from the config table (`BlobDeltaTargetDatabases` with `Extract=1`) to determine which databases to process (usually not needed for day-to-day ops).
+If omitted or set to `NULL`, the engine will use active entries from the config table (`TargetDatabases` with `Extract=1`) to determine which databases to process (usually not needed for day-to-day ops).
 - **Example Value**:  
 `'Gwent_LA_FileTable'`, `'YnysMon_LA_FileTable'`, `'Wrexham_LA_FileTable'` (use the actual database name for your LA)
 

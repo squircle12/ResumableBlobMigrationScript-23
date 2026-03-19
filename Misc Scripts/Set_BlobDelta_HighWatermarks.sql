@@ -3,7 +3,7 @@
 -- -----------------------------------------------------------------------------
 -- Purpose
 --   Convenience script to set the per-table high-watermark used by the
---   BlobDeltaJobs delta engine (dbo.BlobDeltaHighWatermark.LastHighWaterModifiedOn).
+--   BlobDeltaJobs delta engine (dbo.HighWatermark.LastHighWaterModifiedOn).
 --
 --   This is intended for scenarios such as:
 --     - You have restored the source/metadata database from a point-in-time
@@ -21,7 +21,7 @@
 --   4. When you are happy, set @ApplyUpdates = 1 and re-run the script.
 --
 --   Notes
---   - High-watermark rows live ONLY in dbo.BlobDeltaHighWatermark; you do not
+--   - High-watermark rows live ONLY in dbo.HighWatermark; you do not
 --     need to change 03/04/05 scripts to adjust the delta window.
 --   - The delta engine computes @WindowStart/@WindowEnd from this value and
 --     the per-table SafetyBufferMinutes in dbo.BlobDeltaTableConfig.
@@ -37,7 +37,7 @@ DECLARE @TargetDatabaseFilter sysname      = NULL;                  -- e.g. N'Gw
 DECLARE @TableNameFilter      sysname      = NULL;                  -- e.g. N'Gwent_LA_FileTable.dbo.ReferralAttachment'
 DECLARE @ApplyUpdates         bit          = 0;                     -- Safety flag: 0 = dry run, 1 = perform UPDATE
 
-PRINT N'Previewing BlobDeltaHighWatermark rows that match the filters...';
+PRINT N'Previewing HighWatermark rows that match the filters...';
 PRINT N'  @NewHighWaterUtc      = ' + CONVERT(nvarchar(30), @NewHighWaterUtc, 126);
 PRINT N'  @TargetDatabaseFilter = ' + ISNULL(@TargetDatabaseFilter, N'<ALL>');
 PRINT N'  @TableNameFilter      = ' + ISNULL(@TableNameFilter, N'<ALL>');
@@ -57,8 +57,8 @@ PRINT N'';
         c.TargetDatabase,
         c.SourceDatabase,
         c.MetadataDatabase
-    FROM dbo.BlobDeltaHighWatermark h
-    INNER JOIN dbo.BlobDeltaTableConfig c
+    FROM dbo.HighWatermark h
+    INNER JOIN dbo.TableConfig c
         ON c.TableName = h.TableName
     WHERE (@TargetDatabaseFilter IS NULL OR c.TargetDatabase = @TargetDatabaseFilter)
       AND (@TableNameFilter IS NULL OR h.TableName = @TableNameFilter)
@@ -94,8 +94,8 @@ DECLARE @RowsAffected int = 0;
 (
     SELECT
         h.TableName
-    FROM dbo.BlobDeltaHighWatermark h
-    INNER JOIN dbo.BlobDeltaTableConfig c
+    FROM dbo.HighWatermark h
+    INNER JOIN dbo.TableConfig c
         ON c.TableName = h.TableName
     WHERE (@TargetDatabaseFilter IS NULL OR c.TargetDatabase = @TargetDatabaseFilter)
       AND (@TableNameFilter IS NULL OR h.TableName = @TableNameFilter)
@@ -108,7 +108,7 @@ SET
     IsInitialFullLoadDone   = 1,           -- Treat everything up to @NewHighWaterUtc as fully loaded
     IsRunning               = 0,
     RunLeaseExpiresAt       = NULL
-FROM dbo.BlobDeltaHighWatermark h
+FROM dbo.HighWatermark h
 INNER JOIN Targets t
     ON t.TableName = h.TableName;
 

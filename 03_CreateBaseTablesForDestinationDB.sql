@@ -915,40 +915,40 @@ EXEC (@Sql);
 PRINT 'Script completed successfully for database ' + QUOTENAME(@TargetDatabase) + '.';
 
 -------------------------------------------------------------------------------
--- Step 32: Ensure BlobDeltaTargetDatabases entry exists for this TargetDatabase
+-- Step 32: Ensure TargetDatabases entry exists for this TargetDatabase
 --          (insert-only; do not overwrite existing Extract settings)
 -------------------------------------------------------------------------------
 IF DB_ID(N'BlobDeltaJobs') IS NOT NULL
 BEGIN
-    PRINT N'Ensuring BlobDeltaTargetDatabases is seeded for ' + QUOTENAME(@TargetDatabase) + N' in BlobDeltaJobs...';
+    PRINT N'Ensuring TargetDatabases is seeded for ' + QUOTENAME(@TargetDatabase) + N' in BlobDeltaJobs...';
 
     DECLARE @EscapedTargetDatabase       nvarchar(256) = REPLACE(@TargetDatabase, '''', '''''');
     DECLARE @EscapedTargetDatabaseQuoted nvarchar(256) = REPLACE(QUOTENAME(@TargetDatabase), '''', '''''');
 
     EXEC (N'USE BlobDeltaJobs;
-IF OBJECT_ID(N''dbo.BlobDeltaTargetDatabases'', N''U'') IS NOT NULL
+IF OBJECT_ID(N''dbo.TargetDatabases'', N''U'') IS NOT NULL
 BEGIN
     IF NOT EXISTS (
         SELECT 1
-        FROM dbo.BlobDeltaTargetDatabases td
+        FROM dbo.TargetDatabases td
         WHERE td.TargetDatabase = N''' + @EscapedTargetDatabase + N'''
     )
     BEGIN
-        PRINT N''Seeding BlobDeltaTargetDatabases for ' + @EscapedTargetDatabaseQuoted + N' with Extract = 1.'';
-        INSERT INTO dbo.BlobDeltaTargetDatabases (TargetDatabase, Extract)
+        PRINT N''Seeding TargetDatabases for ' + @EscapedTargetDatabaseQuoted + N' with Extract = 1.'';
+        INSERT INTO dbo.TargetDatabases (TargetDatabase, Extract)
         VALUES (N''' + @EscapedTargetDatabase + N''', 1);
     END
     ELSE
     BEGIN
-        PRINT N''BlobDeltaTargetDatabases already has an entry for ' + @EscapedTargetDatabaseQuoted + N'. Preserving existing Extract setting.'';
+        PRINT N''TargetDatabases already has an entry for ' + @EscapedTargetDatabaseQuoted + N'. Preserving existing Extract setting.'';
     END
 END
 ELSE
 BEGIN
-    PRINT N''Warning: dbo.BlobDeltaTargetDatabases does not exist in BlobDeltaJobs. Run the BlobDeltaJobs schema script to create it.'';
+    PRINT N''Warning: dbo.TargetDatabases does not exist in BlobDeltaJobs. Run the BlobDeltaJobs schema script to create it.'';
 END;');
 END
 ELSE
 BEGIN
-    PRINT N'Warning: BlobDeltaJobs database does not exist; skipping BlobDeltaTargetDatabases seeding.';
+    PRINT N'Warning: BlobDeltaJobs database does not exist; skipping TargetDatabases seeding.';
 END;

@@ -133,11 +133,11 @@ DECLARE @Section117EntitlementAttachmentMetadataTable    sysname = N'cw_mhasecti
 DECLARE @Section117EntitlementAttachmentMetadataIdColumn sysname = N'cw_mhasection117entitlementattachmentId';
 
 -- -----------------------------------------------------------------------------
--- 1. Seed BlobDeltaTableConfig for known tables
+-- 1. Seed TableConfig for known tables
 --    (ReferralAttachment and ClientAttachment initial examples)
 -- -----------------------------------------------------------------------------
 
-MERGE dbo.BlobDeltaTableConfig AS t
+MERGE dbo.TableConfig AS t
 USING (
     SELECT
         @FileTableDatabase + N'.' + @FileTableSchema + N'.' + @ReferralTableName AS TableName,
@@ -484,9 +484,9 @@ WHEN MATCHED THEN
 GO
 
 -- Ensure matching high-watermark rows exist
-MERGE dbo.BlobDeltaHighWatermark AS h
+MERGE dbo.HighWatermark AS h
 USING (
-    SELECT TableName FROM dbo.BlobDeltaTableConfig
+    SELECT TableName FROM dbo.TableConfig
 ) AS s
 ON h.TableName = s.TableName
 WHEN NOT MATCHED BY TARGET THEN
@@ -500,7 +500,7 @@ GO
 -- -----------------------------------------------------------------------------
 
 -- Step 1: Roots (parent_path_locator IS NULL), delta-windowed and BU-aware.
-MERGE dbo.BlobDeltaStepScript AS t
+MERGE dbo.StepScript AS t
 USING (
     SELECT
         CAST(1 AS tinyint)     AS StepNumber,
@@ -600,7 +600,7 @@ OPTION (MAXDOP [MaxDOP]);
 GO
 
 -- Step 2: Missing parents batch insert (from #Batch).
-MERGE dbo.BlobDeltaStepScript AS t
+MERGE dbo.StepScript AS t
 USING (
     SELECT
         CAST(2 AS tinyint)     AS StepNumber,
@@ -678,7 +678,7 @@ OPTION (MAXDOP [MaxDOP]);
 GO
 
 -- Step 3: Children (parent_path_locator IS NOT NULL), delta-windowed and BU-aware.
-MERGE dbo.BlobDeltaStepScript AS t
+MERGE dbo.StepScript AS t
 USING (
     SELECT
         CAST(3 AS tinyint)     AS StepNumber,
@@ -784,7 +784,7 @@ GO
 -- Queue PK is (RunId, TableName, stream_id). One parent can be referenced by children in
 -- multiple business units, so we must deduplicate on stream_id only (one queue row per parent).
 DECLARE @QueueScript nvarchar(max) = N'
-INSERT INTO dbo.BlobDeltaMissingParentsQueue (RunId, TableName, stream_id, BusinessUnit, Processed, CreatedAt)
+INSERT INTO dbo.MissingParentsQueue (RunId, TableName, stream_id, BusinessUnit, Processed, CreatedAt)
 SELECT
     @RunId,
     @TableName,
@@ -816,17 +816,17 @@ WHERE Par.stream_id <> @ExcludedStreamId
   )
   AND NOT EXISTS (
       SELECT 1
-      FROM dbo.BlobDeltaMissingParentsQueue Q WITH (NOLOCK)
+      FROM dbo.MissingParentsQueue Q WITH (NOLOCK)
       WHERE Q.RunId = @RunId
         AND Q.TableName = @TableName
         AND Q.stream_id = Par.stream_id
   );
 ';
 
-MERGE dbo.BlobDeltaQueuePopulationScript AS t
+MERGE dbo.QueuePopulationScript AS t
 USING (
     SELECT TableName
-    FROM dbo.BlobDeltaTableConfig
+    FROM dbo.TableConfig
     WHERE IsActive = 1
       AND SourceDatabase = N'AdvancedRBSBlob_WCCIS'
 ) AS s
@@ -867,12 +867,12 @@ GO
     -- Custom RAISERROR-based configuration issues from the engine (50000 by default)
     SELECT
         50000,
-        N'TableName ''%'' not found or inactive in BlobDeltaTableConfig.%',
+        N'TableName ''%'' not found or inactive in TableConfig.%',
         NULL,
         NULL,
         CAST(1 AS bit),
         N'Table',
-        N'Missing or inactive BlobDeltaTableConfig entry should fail the job.'
+        N'Missing or inactive TableConfig entry should fail the job.'
     UNION ALL
     SELECT
         50000,
@@ -928,7 +928,7 @@ GO
         N'Table',
         N'Missing queue population script should be treated as fatal.'
 )
-MERGE dbo.BlobDeltaErrorPolicy AS t
+MERGE dbo.ErrorPolicy AS t
 USING PolicySeeds AS s
     ON  ISNULL(t.ErrorNumber, -1)                 = ISNULL(s.ErrorNumber, -1)
     AND ISNULL(t.ErrorMessagePattern, N'')        = ISNULL(s.ErrorMessagePattern, N'')
@@ -959,36 +959,36 @@ WHEN MATCHED THEN
         t.ErrorScope = s.ErrorScope,
         t.Notes      = s.Notes;
 
--- 5. Seed BlobDeltaTargetDatabases for @FileTableDatabase (insert-only)
+-- 5. Seed TargetDatabases for @FileTableDatabase (insert-only)
 DECLARE @FileTableDatabase sysname;
 
 SELECT TOP (1) @FileTableDatabase = TargetDatabase
-FROM dbo.BlobDeltaTableConfig
+FROM dbo.TableConfig
 ORDER BY TableName;
 
 IF @FileTableDatabase IS NULL
 BEGIN
-    PRINT N'Warning: Could not infer TargetDatabase from BlobDeltaTableConfig. Skipping BlobDeltaTargetDatabases seeding.';
+    PRINT N'Warning: Could not infer TargetDatabase from TableConfig. Skipping TargetDatabases seeding.';
 END
-ELSE IF OBJECT_ID(N'dbo.BlobDeltaTargetDatabases', N'U') IS NOT NULL
+ELSE IF OBJECT_ID(N'dbo.TargetDatabases', N'U') IS NOT NULL
 BEGIN
     IF NOT EXISTS (
         SELECT 1
-        FROM dbo.BlobDeltaTargetDatabases td
+        FROM dbo.TargetDatabases td
         WHERE td.TargetDatabase = @FileTableDatabase
     )
     BEGIN
-        PRINT N'Seeding BlobDeltaTargetDatabases for ' + QUOTENAME(@FileTableDatabase) + N' with Extract = 1.';
-        INSERT INTO dbo.BlobDeltaTargetDatabases (TargetDatabase, Extract)
+        PRINT N'Seeding TargetDatabases for ' + QUOTENAME(@FileTableDatabase) + N' with Extract = 1.';
+        INSERT INTO dbo.TargetDatabases (TargetDatabase, Extract)
         VALUES (@FileTableDatabase, 1);
     END
     ELSE
     BEGIN
-        PRINT N'BlobDeltaTargetDatabases already has an entry for ' + QUOTENAME(@FileTableDatabase) + N'. Preserving existing Extract setting.';
+        PRINT N'TargetDatabases already has an entry for ' + QUOTENAME(@FileTableDatabase) + N'. Preserving existing Extract setting.';
     END
 END
 ELSE
 BEGIN
-    PRINT N'Warning: dbo.BlobDeltaTargetDatabases does not exist. Run the BlobDeltaJobs schema script to create it.';
+    PRINT N'Warning: dbo.TargetDatabases does not exist. Run the BlobDeltaJobs schema script to create it.';
 END;
 GO

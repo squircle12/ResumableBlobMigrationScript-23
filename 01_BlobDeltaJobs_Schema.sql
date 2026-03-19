@@ -37,13 +37,12 @@ SET QUOTED_IDENTIFIER ON;
 GO
 
 -- -----------------------------------------------------------------------------
--- 1. Per-table configuration (delta-aware, BU-aware)
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaTableConfig', N'U') IS NULL
+IF OBJECT_ID(N'dbo.TableConfig', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaTableConfig...';
-    CREATE TABLE dbo.BlobDeltaTableConfig
+    PRINT N'Creating dbo.TableConfig...';
+    CREATE TABLE dbo.TableConfig
     (
         TableName              sysname        NOT NULL PRIMARY KEY,
             -- Logical key, typically the 3-part name of the target FileTable
@@ -68,21 +67,21 @@ BEGIN
             -- table, used for delta-window filtering.
 
         SafetyBufferMinutes    int            NOT NULL
-            CONSTRAINT DF_BlobDeltaTableConfig_SafetyBufferMinutes DEFAULT (240),
+            CONSTRAINT DF_TableConfig_SafetyBufferMinutes DEFAULT (240),
             -- Safety buffer applied around the high-watermark to avoid missing
             -- late/overlapping updates. 240 = 4 hours by default.
 
         IncludeUpdatesInDelta  bit            NOT NULL
-            CONSTRAINT DF_BlobDeltaTableConfig_IncUpd DEFAULT (1),
+            CONSTRAINT DF_TableConfig_IncUpd DEFAULT (1),
 
         IncludeDeletesInDelta  bit            NOT NULL
-            CONSTRAINT DF_BlobDeltaTableConfig_IncDel DEFAULT (0),
+            CONSTRAINT DF_TableConfig_IncDel DEFAULT (0),
 
         IsActive               bit            NOT NULL
-            CONSTRAINT DF_BlobDeltaTableConfig_IsActive DEFAULT (1),
+            CONSTRAINT DF_TableConfig_IsActive DEFAULT (1),
 
         CreatedAt              datetime2(7)   NOT NULL
-            CONSTRAINT DF_BlobDeltaTableConfig_CreatedAt DEFAULT (SYSDATETIME()),
+            CONSTRAINT DF_TableConfig_CreatedAt DEFAULT (SYSDATETIME()),
         UpdatedAt              datetime2(7)   NULL
     );
 END;
@@ -92,13 +91,13 @@ GO
 -- 2. Per-table high-watermark and run lease
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaHighWatermark', N'U') IS NULL
+IF OBJECT_ID(N'dbo.HighWatermark', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaHighWatermark...';
-    CREATE TABLE dbo.BlobDeltaHighWatermark
+    PRINT N'Creating dbo.HighWatermark...';
+    CREATE TABLE dbo.HighWatermark
     (
         TableName                sysname       NOT NULL PRIMARY KEY
-            REFERENCES dbo.BlobDeltaTableConfig (TableName),
+            REFERENCES dbo.TableConfig (TableName),
 
         LastHighWaterModifiedOn  datetime2(7)  NULL,
             -- Last metadata.ModifiedOn value that has been fully captured in
@@ -108,10 +107,10 @@ BEGIN
         LastRunCompletedAt       datetime2(7)  NULL,
 
         IsInitialFullLoadDone    bit           NOT NULL
-            CONSTRAINT DF_BlobDeltaHWM_Initial DEFAULT (0),
+            CONSTRAINT DF_HighWatermark_Initial DEFAULT (0),
 
         IsRunning                bit           NOT NULL
-            CONSTRAINT DF_BlobDeltaHWM_IsRunning DEFAULT (0),
+            CONSTRAINT DF_HighWatermark_IsRunning DEFAULT (0),
             -- Logical lock indicator to prevent overlapping runs for the same
             -- table. The engine should also use RunLeaseExpiresAt as a timeout.
 
@@ -124,10 +123,10 @@ GO
 -- 3. Run header and per-step progress
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaRun', N'U') IS NULL
+IF OBJECT_ID(N'dbo.Run', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaRun...';
-    CREATE TABLE dbo.BlobDeltaRun
+    PRINT N'Creating dbo.Run...';
+    CREATE TABLE dbo.Run
     (
         RunId              uniqueidentifier NOT NULL PRIMARY KEY,
 
@@ -147,13 +146,13 @@ BEGIN
 END;
 GO
 
-IF OBJECT_ID(N'dbo.BlobDeltaRunStep', N'U') IS NULL
+IF OBJECT_ID(N'dbo.RunStep', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaRunStep...';
-    CREATE TABLE dbo.BlobDeltaRunStep
+    PRINT N'Creating dbo.RunStep...';
+    CREATE TABLE dbo.RunStep
     (
         RunId              uniqueidentifier NOT NULL
-            REFERENCES dbo.BlobDeltaRun (RunId),
+            REFERENCES dbo.Run (RunId),
 
         TableName          sysname          NOT NULL,
 
@@ -177,7 +176,7 @@ BEGIN
 
         ErrorMessage       nvarchar(max)    NULL,
 
-        CONSTRAINT PK_BlobDeltaRunStep
+        CONSTRAINT PK_RunStep
             PRIMARY KEY (RunId, TableName, StepNumber, BatchNumber)
     );
 END;
@@ -187,10 +186,10 @@ GO
 -- 4. Missing-parents queue for delta runs
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaMissingParentsQueue', N'U') IS NULL
+IF OBJECT_ID(N'dbo.MissingParentsQueue', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaMissingParentsQueue...';
-    CREATE TABLE dbo.BlobDeltaMissingParentsQueue
+    PRINT N'Creating dbo.MissingParentsQueue...';
+    CREATE TABLE dbo.MissingParentsQueue
     (
         RunId        uniqueidentifier NOT NULL,
         TableName    sysname          NOT NULL,
@@ -200,12 +199,12 @@ BEGIN
             -- Optional BU tag if needed for debugging/troubleshooting.
 
         Processed    bit              NOT NULL
-            CONSTRAINT DF_BlobDeltaMPQ_Processed DEFAULT (0),
+            CONSTRAINT DF_MissingParentsQueue_Processed DEFAULT (0),
 
         CreatedAt    datetime2(7)     NOT NULL
-            CONSTRAINT DF_BlobDeltaMPQ_CreatedAt DEFAULT (SYSDATETIME()),
+            CONSTRAINT DF_MissingParentsQueue_CreatedAt DEFAULT (SYSDATETIME()),
 
-        CONSTRAINT PK_BlobDeltaMissingParentsQueue
+        CONSTRAINT PK_MissingParentsQueue
             PRIMARY KEY (RunId, TableName, stream_id)
     );
 END;
@@ -215,10 +214,10 @@ GO
 -- 5. Step script templates and queue population scripts
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaStepScript', N'U') IS NULL
+IF OBJECT_ID(N'dbo.StepScript', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaStepScript...';
-    CREATE TABLE dbo.BlobDeltaStepScript
+    PRINT N'Creating dbo.StepScript...';
+    CREATE TABLE dbo.StepScript
     (
         StepNumber          tinyint        NOT NULL,
         ScriptKind          nvarchar(50)   NOT NULL,
@@ -235,16 +234,16 @@ BEGIN
 
         Description         nvarchar(256)  NULL,
 
-        CONSTRAINT PK_BlobDeltaStepScript
+        CONSTRAINT PK_StepScript
             PRIMARY KEY (StepNumber, ScriptKind)
     );
 END;
 GO
 
-IF OBJECT_ID(N'dbo.BlobDeltaQueuePopulationScript', N'U') IS NULL
+IF OBJECT_ID(N'dbo.QueuePopulationScript', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaQueuePopulationScript...';
-    CREATE TABLE dbo.BlobDeltaQueuePopulationScript
+    PRINT N'Creating dbo.QueuePopulationScript...';
+    CREATE TABLE dbo.QueuePopulationScript
     (
         TableName  sysname        NOT NULL PRIMARY KEY,
             -- One row per logical table; script body populated by seed script.
@@ -258,10 +257,10 @@ GO
 -- 6. Optional deletion log (for rare deletions)
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaDeletionLog', N'U') IS NULL
+IF OBJECT_ID(N'dbo.DeletionLog', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaDeletionLog...';
-    CREATE TABLE dbo.BlobDeltaDeletionLog
+    PRINT N'Creating dbo.DeletionLog...';
+    CREATE TABLE dbo.DeletionLog
     (
         TableName   sysname          NOT NULL,
         BlobId      uniqueidentifier NOT NULL,
@@ -275,7 +274,7 @@ BEGIN
         CreatedAt   datetime2(7)     NOT NULL
             CONSTRAINT DF_BlobDeltaDelLog_CreatedAt DEFAULT (SYSDATETIME()),
 
-        CONSTRAINT PK_BlobDeltaDeletionLog
+        CONSTRAINT PK_DeletionLog
             PRIMARY KEY (TableName, BlobId, DeletedOn)
     );
 END;
@@ -285,16 +284,16 @@ GO
 -- 7. Error logging (per-run, per-table/step/batch)
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaErrorLog', N'U') IS NULL
+IF OBJECT_ID(N'dbo.ErrorLog', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaErrorLog...';
-    CREATE TABLE dbo.BlobDeltaErrorLog
+    PRINT N'Creating dbo.ErrorLog...';
+    CREATE TABLE dbo.ErrorLog
     (
         ErrorId         int             NOT NULL IDENTITY(1,1)
-            CONSTRAINT PK_BlobDeltaErrorLog PRIMARY KEY,
+            CONSTRAINT PK_ErrorLog PRIMARY KEY,
 
         RunId           uniqueidentifier NOT NULL
-            REFERENCES dbo.BlobDeltaRun (RunId),
+            REFERENCES dbo.Run (RunId),
 
         TableName       sysname         NULL,
         StepNumber      tinyint         NULL,
@@ -315,11 +314,11 @@ BEGIN
             -- Optional: business key or stream_id text for row-level context.
 
         OccurredAt      datetime2(7)    NOT NULL
-            CONSTRAINT DF_BlobDeltaErrorLog_OccurredAt DEFAULT (SYSDATETIME())
+            CONSTRAINT DF_ErrorLog_OccurredAt DEFAULT (SYSDATETIME())
     );
 
-    CREATE NONCLUSTERED INDEX IX_BlobDeltaErrorLog_Run_Table_Step_Batch
-        ON dbo.BlobDeltaErrorLog (RunId, TableName, StepNumber, BatchNumber, OccurredAt);
+    CREATE NONCLUSTERED INDEX IX_ErrorLog_Run_Table_Step_Batch
+        ON dbo.ErrorLog (RunId, TableName, StepNumber, BatchNumber, OccurredAt);
 END;
 GO
 
@@ -327,13 +326,13 @@ GO
 -- 8. Error handling policy (fatal vs non-fatal classification)
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaErrorPolicy', N'U') IS NULL
+IF OBJECT_ID(N'dbo.ErrorPolicy', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaErrorPolicy...';
-    CREATE TABLE dbo.BlobDeltaErrorPolicy
+    PRINT N'Creating dbo.ErrorPolicy...';
+    CREATE TABLE dbo.ErrorPolicy
     (
         ErrorPolicyId       int             NOT NULL IDENTITY(1,1)
-            CONSTRAINT PK_BlobDeltaErrorPolicy PRIMARY KEY,
+            CONSTRAINT PK_ErrorPolicy PRIMARY KEY,
 
         ErrorNumber         int             NULL,
             -- When NULL, classification may be driven by ErrorMessagePattern only.
@@ -356,8 +355,8 @@ BEGIN
         Notes               nvarchar(512)   NULL
     );
 
-    CREATE NONCLUSTERED INDEX IX_BlobDeltaErrorPolicy_Lookup
-        ON dbo.BlobDeltaErrorPolicy (ErrorNumber, AppliesToTableName, AppliesToStep);
+    CREATE NONCLUSTERED INDEX IX_ErrorPolicy_Lookup
+        ON dbo.ErrorPolicy (ErrorNumber, AppliesToTableName, AppliesToStep);
 END;
 GO
 
@@ -365,16 +364,16 @@ GO
 -- 9. Target database filter list for multi-database runs
 -- -----------------------------------------------------------------------------
 
-IF OBJECT_ID(N'dbo.BlobDeltaTargetDatabases', N'U') IS NULL
+IF OBJECT_ID(N'dbo.TargetDatabases', N'U') IS NULL
 BEGIN
-    PRINT N'Creating dbo.BlobDeltaTargetDatabases...';
-    CREATE TABLE dbo.BlobDeltaTargetDatabases
+    PRINT N'Creating dbo.TargetDatabases...';
+    CREATE TABLE dbo.TargetDatabases
     (
         TargetDatabase sysname NOT NULL PRIMARY KEY,
-            -- Logical database name matching BlobDeltaTableConfig.TargetDatabase.
+            -- Logical database name matching TableConfig.TargetDatabase.
 
         Extract       bit     NOT NULL
-            CONSTRAINT DF_BlobDeltaTargetDatabases_Extract DEFAULT (1)
+            CONSTRAINT DF_TargetDatabases_Extract DEFAULT (1)
             -- When 1 and @TargetDatabase IS NULL, tables for this TargetDatabase
             -- are eligible for processing; when 0, they are skipped unless the
             -- caller explicitly specifies @TargetDatabase.

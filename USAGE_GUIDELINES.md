@@ -13,7 +13,7 @@ This document provides practical usage guidelines, FAQ, backup/transfer procedur
    - Run `04_BlobDeltaJobs_Seed_Config.sql` – seeds table config and script templates.
    - Run `05_BlobDeltaJobs_Engine.sql` – deploys the engine procedures.
 
-2. **Verify configuration** in `BlobDeltaTableConfig`:
+2. **Verify configuration** in `TableConfig`:
    - Tables and databases (e.g. `ReferralAttachment`, `ClientAttachment` in `Gwent_LA_FileTable`—actual values depend on your setup).
    - Confirm `SafetyBufferMinutes` (default 240).
    - Confirm source/target/metadata database names match your environment.
@@ -30,7 +30,7 @@ This document provides practical usage guidelines, FAQ, backup/transfer procedur
 | **Specific business unit only** | `EXEC dbo.usp_BlobDelta_RunOperator @Mode = N'AllTables', @TableName = NULL, @BatchSize = 500, @MaxDOP = 2, @BusinessUnitId = '<GUID>'` |
 
 - Always run from the `BlobDeltaJobs` database.
-- The engine populates the **target** tables defined in `BlobDeltaTableConfig` (for example, `Gwent_LA_FileTable.dbo.ReferralAttachment` and `ClientAttachment`—actual tables depend on your config) with new and updated blob records based on `[ModifiedOn]`.
+- The engine populates the **target** tables defined in `TableConfig` (for example, `Gwent_LA_FileTable.dbo.ReferralAttachment` and `ClientAttachment`—actual tables depend on your config) with new and updated blob records based on `[ModifiedOn]`.
 
 ---
 
@@ -56,15 +56,15 @@ A: The safety buffer overlaps windows, and frequently updated records may appear
 A: Deletions are not managed at present. The delta pipeline does not propagate deletes.
 
 **Q: What is the safety buffer and should I change it?**  
-A: The default 4-hour buffer reduces the risk of missing late writes or clock drift. Adjust `SafetyBufferMinutes` in `BlobDeltaTableConfig` only if you have a strong reason (e.g. very large buffer for cross-timezone issues).
+A: The default 4-hour buffer reduces the risk of missing late writes or clock drift. Adjust `SafetyBufferMinutes` in `TableConfig` only if you have a strong reason (e.g. very large buffer for cross-timezone issues).
 
 ### Operations
 
 **Q: How do I add a new table to delta loads?**  
-A: Insert a row into `BlobDeltaTableConfig` with source/target/metadata details and `MetadataModifiedOnCol`, then add a matching row in `BlobDeltaHighWatermark`. The existing script templates may work; otherwise add/update scripts in `BlobDeltaStepScript` and `BlobDeltaQueuePopulationScript`.
+A: Insert a row into `TableConfig` with source/target/metadata details and `MetadataModifiedOnCol`, then add a matching row in `HighWatermark`. The existing script templates may work; otherwise add/update scripts in `StepScript` and `QueuePopulationScript`.
 
 **Q: How do I see what was processed in a run?**  
-A: Use `BlobDeltaRun` and `BlobDeltaRunStep` (see [Monitoring](#3-monitoring-and-troubleshooting)). You can correlate rows with the target tables using `stream_id` and `ModifiedOn`.
+A: Use `Run` and `RunStep` (see [Monitoring](#3-monitoring-and-troubleshooting)). You can correlate rows with the target tables using `stream_id` and `ModifiedOn`.
 
 ---
 
@@ -75,7 +75,7 @@ A: Use `BlobDeltaRun` and `BlobDeltaRunStep` (see [Monitoring](#3-monitoring-and
 ```sql
 SELECT TOP (50)
     RunId, RunType, RequestedBy, RunStartedAt, RunCompletedAt, Status, ErrorMessage
-FROM BlobDeltaJobs.dbo.BlobDeltaRun
+FROM BlobDeltaJobs.dbo.Run
 ORDER BY RunStartedAt DESC;
 ```
 
@@ -84,7 +84,7 @@ ORDER BY RunStartedAt DESC;
 ```sql
 SELECT TableName, StepNumber, BatchNumber, RowsProcessed, TotalRowsProcessed,
        WindowStart, WindowEnd, BatchStartedAt, BatchCompletedAt, Status, ErrorMessage
-FROM BlobDeltaJobs.dbo.BlobDeltaRunStep
+FROM BlobDeltaJobs.dbo.RunStep
 WHERE RunId = @RunId
 ORDER BY TableName, StepNumber, BatchNumber;
 ```
@@ -94,7 +94,7 @@ ORDER BY TableName, StepNumber, BatchNumber;
 ```sql
 SELECT TableName, LastHighWaterModifiedOn, LastRunId, LastRunCompletedAt,
        IsInitialFullLoadDone, IsRunning, RunLeaseExpiresAt
-FROM BlobDeltaJobs.dbo.BlobDeltaHighWatermark
+FROM BlobDeltaJobs.dbo.HighWatermark
 ORDER BY TableName;
 ```
 
@@ -102,7 +102,7 @@ ORDER BY TableName;
 
 ## 4. Backup and Transfer to Supplier
 
-The delta engine writes to **target** tables in FileTable databases. The system runs across **multiple databases**; each table in `BlobDeltaTableConfig` defines its own source, target, and metadata databases. For example, `Gwent_LA_FileTable.dbo.ReferralAttachment` and `Gwent_LA_FileTable.dbo.ClientAttachment` are illustrative—your actual target databases and tables depend on your configuration.
+The delta engine writes to **target** tables in FileTable databases. The system runs across **multiple databases**; each table in `TableConfig` defines its own source, target, and metadata databases. For example, `Gwent_LA_FileTable.dbo.ReferralAttachment` and `Gwent_LA_FileTable.dbo.ClientAttachment` are illustrative—your actual target databases and tables depend on your configuration.
 
 ### 4.1 Backup Format and Scope
 
@@ -192,7 +192,7 @@ If the supplier submits a request after the 1-week retention window, a manual re
 
 1. **Raise and process a FreshDesk ticket** requesting a delta refresh for the missed period.
 2. **Identify the affected table(s)** and the date range to be re-included (e.g. the week that was missed).
-3. **Update the high-watermark** in `BlobDeltaHighWatermark` to a value *before* the start of the missed window. This causes the next run to treat that period as unprocessed.
+3. **Update the high-watermark** in `HighWatermark` to a value *before* the start of the missed window. This causes the next run to treat that period as unprocessed.
 
 ```sql
 USE BlobDeltaJobs;
@@ -201,7 +201,7 @@ GO
 -- Example: set LastHighWaterModifiedOn to 1 Jan 2025 so the next run
 -- will pick up records from that date forward (within the window logic).
 -- Replace the TableName and date with the actual table and desired start date.
-UPDATE dbo.BlobDeltaHighWatermark
+UPDATE dbo.HighWatermark
 SET LastHighWaterModifiedOn = '2025-01-01 00:00:00'
 WHERE TableName = N'Gwent_LA_FileTable.dbo.ReferralAttachment';  -- example; use your actual TableName
 ```
@@ -228,8 +228,8 @@ EXEC dbo.usp_BlobDelta_RunOperator
 | Object | Purpose |
 |--------|---------|
 | `BlobDeltaJobs` | Orchestration database for delta runs |
-| `BlobDeltaTableConfig` | Per-table configuration (source, target, metadata, safety buffer) |
-| `BlobDeltaHighWatermark` | Last processed `ModifiedOn` per table |
-| `BlobDeltaRun` | Run headers (RunId, status, timestamps) |
-| `BlobDeltaRunStep` | Per-step/batch progress |
+| `TableConfig` | Per-table configuration (source, target, metadata, safety buffer) |
+| `HighWatermark` | Last processed `ModifiedOn` per table |
+| `Run` | Run headers (RunId, status, timestamps) |
+| `RunStep` | Per-step/batch progress |
 | `usp_BlobDelta_RunOperator` | Main entry point for running delta loads |

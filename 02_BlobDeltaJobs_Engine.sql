@@ -50,13 +50,13 @@ BEGIN
         @MetadataIdColumn = c.MetadataIdColumn,
         @MetadataModifiedOnColumn = c.MetadataModifiedOnCol,
         @SafetyBufferMinutes = c.SafetyBufferMinutes
-    FROM dbo.BlobDeltaTableConfig c
+    FROM dbo.TableConfig c
     WHERE c.TableName = @TableName
       AND c.IsActive = 1;
 
     IF @SourceTableFull IS NULL
     BEGIN
-        RAISERROR(N'TableName ''%s'' not found or inactive in BlobDeltaTableConfig.', 16, 1, @TableName) WITH NOWAIT;
+        RAISERROR(N'TableName ''%s'' not found or inactive in TableConfig.', 16, 1, @TableName) WITH NOWAIT;
     END
 END;
 GO
@@ -68,11 +68,11 @@ GO
 CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_Run
     @RunId        uniqueidentifier = NULL OUTPUT,
     @RunType      nvarchar(20)     = N'Delta',  -- 'Full','Delta','DryRun'
-    @TableName    sysname          = NULL,      -- NULL = all active tables (filtered by @TargetDatabase or BlobDeltaTargetDatabases)
+    @TableName    sysname          = NULL,      -- NULL = all active tables (filtered by @TargetDatabase or TargetDatabases)
     @BatchSize    int              = 5000,
     @MaxDOP       tinyint          = 1,
     @DryRun       bit              = 0,         -- If 1, print dynamic SQL instead of executing it
-    @TargetDatabase sysname        = NULL      -- Optional: when NOT NULL, filter to a single TargetDatabase; when NULL, use BlobDeltaTargetDatabases (Extract = 1) to choose databases
+    @TargetDatabase sysname        = NULL      -- Optional: when NOT NULL, filter to a single TargetDatabase; when NULL, use TargetDatabases (Extract = 1) to choose databases
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -95,7 +95,7 @@ BEGIN
     IF @RunId IS NULL
     BEGIN
         SET @RunId = NEWID();
-        INSERT INTO dbo.BlobDeltaRun (RunId, RunType, RequestedBy, RunStartedAt, Status)
+        INSERT INTO dbo.Run (RunId, RunType, RequestedBy, RunStartedAt, Status)
         VALUES (@RunId, @RunType, @RequestedBy, @Now, N'InProgress');
     END
 
@@ -107,15 +107,15 @@ BEGIN
     BEGIN
         SELECT DISTINCT c.TargetDatabase
         INTO #TargetDatabases
-        FROM dbo.BlobDeltaTableConfig c
-        INNER JOIN dbo.BlobDeltaTargetDatabases td
+        FROM dbo.TableConfig c
+        INNER JOIN dbo.TargetDatabases td
             ON td.TargetDatabase = c.TargetDatabase
            AND td.Extract = 1
         WHERE c.IsActive = 1;
 
         IF NOT EXISTS (SELECT 1 FROM #TargetDatabases)
         BEGIN
-            RAISERROR(N'No target databases with Extract = 1 found in BlobDeltaTargetDatabases that have active BlobDeltaTableConfig rows.', 16, 1) WITH NOWAIT;
+            RAISERROR(N'No target databases with Extract = 1 found in TargetDatabases that have active TableConfig rows.', 16, 1) WITH NOWAIT;
             RETURN;
         END
     END
@@ -131,20 +131,20 @@ BEGIN
 
     IF @TargetDatabase IS NOT NULL
     BEGIN
-        -- Backwards-compatible behavior: restrict to a single TargetDatabase, ignore BlobDeltaTargetDatabases.
+        -- Backwards-compatible behavior: restrict to a single TargetDatabase, ignore TargetDatabases.
         INSERT INTO #TablesToProcess (TableName)
         SELECT c.TableName
-        FROM dbo.BlobDeltaTableConfig c
+        FROM dbo.TableConfig c
         WHERE c.IsActive = 1
           AND (@TableName IS NULL OR c.TableName = @TableName)
           AND c.TargetDatabase = @TargetDatabase;
     END
     ELSE
     BEGIN
-        -- When @TargetDatabase is NULL, restrict to tables whose TargetDatabase appears in BlobDeltaTargetDatabases with Extract = 1.
+        -- When @TargetDatabase is NULL, restrict to tables whose TargetDatabase appears in TargetDatabases with Extract = 1.
         INSERT INTO #TablesToProcess (TableName)
         SELECT c.TableName
-        FROM dbo.BlobDeltaTableConfig c
+        FROM dbo.TableConfig c
         INNER JOIN #TargetDatabases td
             ON c.TargetDatabase = td.TargetDatabase
         WHERE c.IsActive = 1
@@ -155,14 +155,14 @@ BEGIN
     DECLARE @TablesToProcessCount int = (SELECT COUNT(*) FROM #TablesToProcess);
     IF @TablesToProcessCount = 0
     BEGIN
-        PRINT N'No tables to process. Check that BlobDeltaTableConfig has a row where:';
+        PRINT N'No tables to process. Check that TableConfig has a row where:';
         PRINT N'  - TableName = @TableName (e.g. YnysMon_LA_FileTable.dbo.ReferralAttachment)';
         PRINT N'  - TargetDatabase = @TargetDatabase when provided (e.g. YnysMon_LA_FileTable)';
         PRINT N'  - IsActive = 1. Run 04_BlobDeltaJobs_Seed_Config.sql for new databases with the correct @FileTableDatabase.';
         IF @TargetDatabase IS NULL
         BEGIN
-            PRINT N'When @TargetDatabase is NULL, tables are further filtered by BlobDeltaTargetDatabases where Extract = 1.';
-            PRINT N'Check that the desired TargetDatabase values are present in BlobDeltaTargetDatabases with Extract = 1.';
+            PRINT N'When @TargetDatabase is NULL, tables are further filtered by TargetDatabases where Extract = 1.';
+            PRINT N'Check that the desired TargetDatabase values are present in TargetDatabases with Extract = 1.';
         END
         -- Still complete the run (update BlobDeltaRun status) but do nothing else
     END
@@ -327,7 +327,7 @@ BEGIN
 
             -- Load high-watermark and compute window.
             SELECT @LastHighWater = h.LastHighWaterModifiedOn
-            FROM dbo.BlobDeltaHighWatermark h
+            FROM dbo.HighWatermark h
             WHERE h.TableName = @T_TableName;
 
             SET @WindowEnd = DATEADD(MINUTE, -@SafetyBufferMinutes, @RunStartForTable);
@@ -355,7 +355,7 @@ BEGIN
                 SET IsRunning = 1,
                     RunLeaseExpiresAt = DATEADD(MINUTE, 60, @RunStartForTable),
                     LastRunId = @RunId
-                FROM dbo.BlobDeltaHighWatermark h
+                FROM dbo.HighWatermark h
                 WHERE h.TableName = @T_TableName;
             END
 
@@ -364,7 +364,7 @@ BEGIN
             -- -----------------------------------------------------------------
             IF NOT EXISTS (
                 SELECT 1
-                FROM dbo.BlobDeltaRunStep
+                FROM dbo.RunStep
                 WHERE RunId = @RunId
                   AND TableName = @T_TableName
                   AND StepNumber = 1
@@ -383,7 +383,7 @@ BEGIN
                     SET @BatchStartedAt = SYSDATETIME();
 
                     SELECT @Sql = ScriptBody
-                    FROM dbo.BlobDeltaStepScript
+                    FROM dbo.StepScript
                     WHERE StepNumber = 1 AND ScriptKind = N'Roots';
 
                     IF @Sql IS NULL
@@ -434,7 +434,7 @@ BEGIN
                         SET @TotalRows = @TotalRows + @Rows;
                         SET @BatchCompletedAt = SYSDATETIME();
 
-                        INSERT INTO dbo.BlobDeltaRunStep
+                        INSERT INTO dbo.RunStep
                             (RunId, TableName, StepNumber, BatchNumber,
                              RowsProcessed, TotalRowsProcessed,
                              WindowStart, WindowEnd,
@@ -469,7 +469,7 @@ BEGIN
                             SELECT TOP (1)
                                 p.IsFatal,
                                 p.ErrorScope
-                            FROM dbo.BlobDeltaErrorPolicy p
+                            FROM dbo.ErrorPolicy p
                             WHERE (p.AppliesToTableName IS NULL OR p.AppliesToTableName = @T_TableName)
                               AND (p.AppliesToStep      IS NULL OR p.AppliesToStep      = 1)
                               AND (p.ErrorNumber        IS NULL OR p.ErrorNumber        = @S1_ErrNumber)
@@ -496,7 +496,7 @@ BEGIN
                             SET @S1_PolicyScope = N'Batch';
                         END
 
-                        INSERT INTO dbo.BlobDeltaErrorLog
+                        INSERT INTO dbo.ErrorLog
                             (RunId, TableName, StepNumber, BatchNumber,
                              ErrorScope, ErrorNumber, ErrorSeverity, ErrorState, ErrorLine, ErrorProcedure,
                              ErrorMessage, SourceKey, OccurredAt)
@@ -531,7 +531,7 @@ BEGIN
                     END CATCH;
                 END;
 
-                INSERT INTO dbo.BlobDeltaRunStep
+                INSERT INTO dbo.RunStep
                     (RunId, TableName, StepNumber, BatchNumber,
                      RowsProcessed, TotalRowsProcessed,
                      WindowStart, WindowEnd,
@@ -552,7 +552,7 @@ BEGIN
             -- -----------------------------------------------------------------
             IF NOT EXISTS (
                 SELECT 1
-                FROM dbo.BlobDeltaRunStep
+                FROM dbo.RunStep
                 WHERE RunId = @RunId
                   AND TableName = @T_TableName
                   AND StepNumber = 2
@@ -568,7 +568,7 @@ BEGIN
                 -- Populate queue for this run/table if empty.
                 IF NOT EXISTS (
                     SELECT 1
-                    FROM dbo.BlobDeltaMissingParentsQueue
+                    FROM dbo.MissingParentsQueue
                     WHERE RunId = @RunId AND TableName = @T_TableName
                 )
                 BEGIN
@@ -579,7 +579,7 @@ BEGIN
                     END
                     
                     SELECT @Sql = ScriptBody
-                    FROM dbo.BlobDeltaQueuePopulationScript
+                    FROM dbo.QueuePopulationScript
                     WHERE TableName = @T_TableName;
                     
                     IF @Sql IS NULL
@@ -634,7 +634,7 @@ BEGIN
 
                     INSERT INTO #Batch (stream_id)
                     SELECT TOP (@EffectiveBatchSize) Q.stream_id
-                    FROM dbo.BlobDeltaMissingParentsQueue Q WITH (READPAST)
+                    FROM dbo.MissingParentsQueue Q WITH (READPAST)
                     WHERE Q.RunId = @RunId
                       AND Q.TableName = @T_TableName
                       AND Q.Processed = 0;
@@ -649,7 +649,7 @@ BEGIN
                     SET @BatchStartedAt = SYSDATETIME();
 
                     SELECT @Sql = ScriptBody
-                    FROM dbo.BlobDeltaStepScript
+                    FROM dbo.StepScript
                     WHERE StepNumber = 2 AND ScriptKind = N'MissingParentsBatch';
 
                     SET @Sql = REPLACE(@Sql, N'[SourceTableFull]', @SourceTableFull);
@@ -676,12 +676,12 @@ BEGIN
 
                         UPDATE Q
                         SET Processed = 1
-                        FROM dbo.BlobDeltaMissingParentsQueue Q
+                        FROM dbo.MissingParentsQueue Q
                         WHERE Q.RunId = @RunId
                           AND Q.TableName = @T_TableName
                           AND Q.stream_id IN (SELECT stream_id FROM #Batch);
 
-                        INSERT INTO dbo.BlobDeltaRunStep
+                        INSERT INTO dbo.RunStep
                             (RunId, TableName, StepNumber, BatchNumber,
                              RowsProcessed, TotalRowsProcessed,
                              WindowStart, WindowEnd,
@@ -711,7 +711,7 @@ BEGIN
                             SELECT TOP (1)
                                 p.IsFatal,
                                 p.ErrorScope
-                            FROM dbo.BlobDeltaErrorPolicy p
+                            FROM dbo.ErrorPolicy p
                             WHERE (p.AppliesToTableName IS NULL OR p.AppliesToTableName = @T_TableName)
                               AND (p.AppliesToStep      IS NULL OR p.AppliesToStep      = 2)
                               AND (p.ErrorNumber        IS NULL OR p.ErrorNumber        = @S2_ErrNumber)
@@ -738,7 +738,7 @@ BEGIN
                             SET @S2_PolicyScope = N'Batch';
                         END
 
-                        INSERT INTO dbo.BlobDeltaErrorLog
+                        INSERT INTO dbo.ErrorLog
                             (RunId, TableName, StepNumber, BatchNumber,
                              ErrorScope, ErrorNumber, ErrorSeverity, ErrorState, ErrorLine, ErrorProcedure,
                              ErrorMessage, SourceKey, OccurredAt)
@@ -760,12 +760,12 @@ BEGIN
                             -- Mark this batch's queue entries as processed so they are not retried.
                             UPDATE Q
                             SET Processed = 1
-                            FROM dbo.BlobDeltaMissingParentsQueue Q
+                            FROM dbo.MissingParentsQueue Q
                             WHERE Q.RunId = @RunId
                               AND Q.TableName = @T_TableName
                               AND Q.stream_id IN (SELECT stream_id FROM #Batch);
 
-                            INSERT INTO dbo.BlobDeltaRunStep
+                            INSERT INTO dbo.RunStep
                                 (RunId, TableName, StepNumber, BatchNumber,
                                  RowsProcessed, TotalRowsProcessed,
                                  WindowStart, WindowEnd,
@@ -786,7 +786,7 @@ BEGIN
                     END CATCH;
                 END;
 
-                INSERT INTO dbo.BlobDeltaRunStep
+                INSERT INTO dbo.RunStep
                     (RunId, TableName, StepNumber, BatchNumber,
                      RowsProcessed, TotalRowsProcessed,
                      WindowStart, WindowEnd,
@@ -807,7 +807,7 @@ BEGIN
             -- -----------------------------------------------------------------
             IF NOT EXISTS (
                 SELECT 1
-                FROM dbo.BlobDeltaRunStep
+                FROM dbo.RunStep
                 WHERE RunId = @RunId
                   AND TableName = @T_TableName
                   AND StepNumber = 3
@@ -826,7 +826,7 @@ BEGIN
                     SET @BatchStartedAt = SYSDATETIME();
 
                     SELECT @Sql = ScriptBody
-                    FROM dbo.BlobDeltaStepScript
+                    FROM dbo.StepScript
                     WHERE StepNumber = 3 AND ScriptKind = N'Children';
 
                     IF @Sql IS NULL
@@ -877,7 +877,7 @@ BEGIN
                         SET @TotalRows = @TotalRows + @Rows;
                         SET @BatchCompletedAt = SYSDATETIME();
 
-                        INSERT INTO dbo.BlobDeltaRunStep
+                        INSERT INTO dbo.RunStep
                             (RunId, TableName, StepNumber, BatchNumber,
                              RowsProcessed, TotalRowsProcessed,
                              WindowStart, WindowEnd,
@@ -907,7 +907,7 @@ BEGIN
                             SELECT TOP (1)
                                 p.IsFatal,
                                 p.ErrorScope
-                            FROM dbo.BlobDeltaErrorPolicy p
+                            FROM dbo.ErrorPolicy p
                             WHERE (p.AppliesToTableName IS NULL OR p.AppliesToTableName = @T_TableName)
                               AND (p.AppliesToStep      IS NULL OR p.AppliesToStep      = 3)
                               AND (p.ErrorNumber        IS NULL OR p.ErrorNumber        = @S3_ErrNumber)
@@ -934,7 +934,7 @@ BEGIN
                             SET @S3_PolicyScope = N'Batch';
                         END
 
-                        INSERT INTO dbo.BlobDeltaErrorLog
+                        INSERT INTO dbo.ErrorLog
                             (RunId, TableName, StepNumber, BatchNumber,
                              ErrorScope, ErrorNumber, ErrorSeverity, ErrorState, ErrorLine, ErrorProcedure,
                              ErrorMessage, SourceKey, OccurredAt)
@@ -951,7 +951,7 @@ BEGIN
                         BEGIN
                             SET @BatchCompletedAt = SYSDATETIME();
 
-                            INSERT INTO dbo.BlobDeltaRunStep
+                            INSERT INTO dbo.RunStep
                                 (RunId, TableName, StepNumber, BatchNumber,
                                  RowsProcessed, TotalRowsProcessed,
                                  WindowStart, WindowEnd,
@@ -969,7 +969,7 @@ BEGIN
                     END CATCH;
                 END;
 
-                INSERT INTO dbo.BlobDeltaRunStep
+                INSERT INTO dbo.RunStep
                     (RunId, TableName, StepNumber, BatchNumber,
                      RowsProcessed, TotalRowsProcessed,
                      WindowStart, WindowEnd,
@@ -991,7 +991,7 @@ BEGIN
             -- -----------------------------------------------------------------
             IF @DryRun = 0
             BEGIN
-                UPDATE dbo.BlobDeltaHighWatermark
+                UPDATE dbo.HighWatermark
                 SET LastHighWaterModifiedOn = @WindowEnd,
                     LastRunId                = @RunId,
                     LastRunCompletedAt       = SYSDATETIME(),
@@ -1018,7 +1018,7 @@ BEGIN
                 SELECT TOP (1)
                     p.IsFatal,
                     p.ErrorScope
-                FROM dbo.BlobDeltaErrorPolicy p
+                FROM dbo.ErrorPolicy p
                 WHERE (p.AppliesToTableName IS NULL OR p.AppliesToTableName = @T_TableName)
                   AND (p.AppliesToStep      IS NULL OR p.AppliesToStep      = ISNULL(@CurrentStep, 0))
                   AND (p.ErrorNumber        IS NULL OR p.ErrorNumber        = @ErrNumber)
@@ -1045,8 +1045,8 @@ BEGIN
                 SET @PolicyScope = N'Table';
             END
 
-            -- Always log the error detail to BlobDeltaErrorLog.
-            INSERT INTO dbo.BlobDeltaErrorLog
+            -- Always log the error detail to ErrorLog.
+            INSERT INTO dbo.ErrorLog
                 (RunId, TableName, StepNumber, BatchNumber,
                  ErrorScope, ErrorNumber, ErrorSeverity, ErrorState, ErrorLine, ErrorProcedure,
                  ErrorMessage, SourceKey, OccurredAt)
@@ -1056,7 +1056,7 @@ BEGIN
                  @ErrMsg, NULL, SYSDATETIME());
 
             -- Record a failure summary step for this table.
-            INSERT INTO dbo.BlobDeltaRunStep
+            INSERT INTO dbo.RunStep
                 (RunId, TableName, StepNumber, BatchNumber,
                  RowsProcessed, TotalRowsProcessed,
                  WindowStart, WindowEnd,
@@ -1074,7 +1074,7 @@ BEGIN
 
             IF @DryRun = 0
             BEGIN
-                UPDATE dbo.BlobDeltaHighWatermark
+                UPDATE dbo.HighWatermark
                 SET IsRunning         = 0,
                     RunLeaseExpiresAt = NULL
                 WHERE TableName = @T_TableName;
@@ -1082,7 +1082,7 @@ BEGIN
 
             IF @IsFatal = 1
             BEGIN
-                UPDATE dbo.BlobDeltaRun
+                UPDATE dbo.Run
                 SET Status       = N'Failed',
                     ErrorMessage = COALESCE(ErrorMessage + N'; ', N'') + @ErrMsg,
                     RunCompletedAt = SYSDATETIME()
@@ -1106,20 +1106,20 @@ BEGIN
     CLOSE table_cursor;
     DEALLOCATE table_cursor;
 
-    IF NOT EXISTS (SELECT 1 FROM dbo.BlobDeltaRun WHERE RunId = @RunId AND Status = N'Failed')
+    IF NOT EXISTS (SELECT 1 FROM dbo.Run WHERE RunId = @RunId AND Status = N'Failed')
     BEGIN
         DECLARE @HasNonFatalErrors bit = 0;
 
         IF EXISTS (
             SELECT 1
-            FROM dbo.BlobDeltaErrorLog el
+            FROM dbo.ErrorLog el
             WHERE el.RunId = @RunId
         )
         BEGIN
             SET @HasNonFatalErrors = 1;
         END
 
-        UPDATE dbo.BlobDeltaRun
+        UPDATE dbo.Run
         SET Status = CASE WHEN @HasNonFatalErrors = 1 THEN N'SucceededWithErrors' ELSE N'Succeeded' END,
             RunCompletedAt = SYSDATETIME()
         WHERE RunId = @RunId;
@@ -1186,7 +1186,7 @@ GO
 -- Remove database: Delete all configuration and related data for a database
 -- -----------------------------------------------------------------------------
 
-CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_RemoveDatabase
+CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_RemoveDatabaseConfig
     @DatabaseName sysname,  -- Database name to remove (matches SourceDatabase, TargetDatabase, or MetadataDatabase)
     @DryRun       bit = 0   -- If 1, only report what would be deleted without actually deleting
 AS
@@ -1203,16 +1203,27 @@ BEGIN
     DECLARE @TableNamesToDelete TABLE (TableName sysname PRIMARY KEY);
     DECLARE @RowsAffected int;
     DECLARE @TotalRowsDeleted int = 0;
+    DECLARE @HasTargetDatabasesRow bit = 0;
+
+    IF EXISTS (
+        SELECT 1
+        FROM dbo.TargetDatabases td
+        WHERE td.TargetDatabase = @DatabaseName
+    )
+    BEGIN
+        SET @HasTargetDatabasesRow = 1;
+    END
 
     -- Find all TableName entries where the database appears in SourceDatabase, TargetDatabase, or MetadataDatabase
     INSERT INTO @TableNamesToDelete (TableName)
     SELECT DISTINCT c.TableName
-    FROM dbo.BlobDeltaTableConfig c
+    FROM dbo.TableConfig c
     WHERE c.SourceDatabase = @DatabaseName
        OR c.TargetDatabase = @DatabaseName
        OR c.MetadataDatabase = @DatabaseName;
 
     IF NOT EXISTS (SELECT 1 FROM @TableNamesToDelete)
+       AND @HasTargetDatabasesRow = 0
     BEGIN
         PRINT N'No configuration found for database ' + QUOTENAME(@DatabaseName) + N'. Nothing to remove.';
         RETURN;
@@ -1226,6 +1237,7 @@ BEGIN
         DECLARE @HighWatermarkCount int;
         DECLARE @QueueScriptCount int;
         DECLARE @TableConfigCount int;
+        DECLARE @TargetDatabasesCount int;
 
         PRINT N'DRY RUN MODE: Would delete configuration for database ' + QUOTENAME(@DatabaseName) + N':';
         PRINT N'';
@@ -1236,7 +1248,7 @@ BEGIN
             c.TargetDatabase,
             c.MetadataDatabase,
             c.IsActive
-        FROM dbo.BlobDeltaTableConfig c
+        FROM dbo.TableConfig c
         INNER JOIN @TableNamesToDelete t ON c.TableName = t.TableName
         ORDER BY c.TableName;
 
@@ -1245,93 +1257,106 @@ BEGIN
             SUM(CASE WHEN c.SourceDatabase = @DatabaseName THEN 1 ELSE 0 END) AS AsSourceDatabase,
             SUM(CASE WHEN c.TargetDatabase = @DatabaseName THEN 1 ELSE 0 END) AS AsTargetDatabase,
             SUM(CASE WHEN c.MetadataDatabase = @DatabaseName THEN 1 ELSE 0 END) AS AsMetadataDatabase
-        FROM dbo.BlobDeltaTableConfig c
+        FROM dbo.TableConfig c
         INNER JOIN @TableNamesToDelete t ON c.TableName = t.TableName;
 
         -- Calculate counts into variables
         SELECT @RunStepCount = COUNT(*)
-        FROM dbo.BlobDeltaRunStep s
+        FROM dbo.RunStep s
         INNER JOIN @TableNamesToDelete t ON s.TableName = t.TableName;
 
         SELECT @QueueCount = COUNT(*)
-        FROM dbo.BlobDeltaMissingParentsQueue q
+        FROM dbo.MissingParentsQueue q
         INNER JOIN @TableNamesToDelete t ON q.TableName = t.TableName;
 
         SELECT @DeletionLogCount = COUNT(*)
-        FROM dbo.BlobDeltaDeletionLog d
+        FROM dbo.DeletionLog d
         INNER JOIN @TableNamesToDelete t ON d.TableName = t.TableName;
 
         SELECT @HighWatermarkCount = COUNT(*)
-        FROM dbo.BlobDeltaHighWatermark h
+        FROM dbo.HighWatermark h
         INNER JOIN @TableNamesToDelete t ON h.TableName = t.TableName;
 
         SELECT @QueueScriptCount = COUNT(*)
-        FROM dbo.BlobDeltaQueuePopulationScript s
+        FROM dbo.QueuePopulationScript s
         INNER JOIN @TableNamesToDelete t ON s.TableName = t.TableName;
 
         SELECT @TableConfigCount = COUNT(*)
         FROM @TableNamesToDelete;
 
+        SELECT @TargetDatabasesCount = COUNT(*)
+        FROM dbo.TargetDatabases td
+        WHERE td.TargetDatabase = @DatabaseName;
+
         PRINT N'';
         PRINT N'Related data that would be deleted:';
-        PRINT N'  - BlobDeltaRunStep rows: ' + CAST(@RunStepCount AS nvarchar(20));
-        PRINT N'  - BlobDeltaMissingParentsQueue rows: ' + CAST(@QueueCount AS nvarchar(20));
-        PRINT N'  - BlobDeltaDeletionLog rows: ' + CAST(@DeletionLogCount AS nvarchar(20));
-        PRINT N'  - BlobDeltaHighWatermark rows: ' + CAST(@HighWatermarkCount AS nvarchar(20));
-        PRINT N'  - BlobDeltaQueuePopulationScript rows: ' + CAST(@QueueScriptCount AS nvarchar(20));
-        PRINT N'  - BlobDeltaTableConfig rows: ' + CAST(@TableConfigCount AS nvarchar(20));
+        PRINT N'  - RunStep rows: ' + CAST(@RunStepCount AS nvarchar(20));
+        PRINT N'  - MissingParentsQueue rows: ' + CAST(@QueueCount AS nvarchar(20));
+        PRINT N'  - DeletionLog rows: ' + CAST(@DeletionLogCount AS nvarchar(20));
+        PRINT N'  - HighWatermark rows: ' + CAST(@HighWatermarkCount AS nvarchar(20));
+        PRINT N'  - QueuePopulationScript rows: ' + CAST(@QueueScriptCount AS nvarchar(20));
+        PRINT N'  - TableConfig rows: ' + CAST(@TableConfigCount AS nvarchar(20));
+        PRINT N'  - TargetDatabases rows: ' + CAST(@TargetDatabasesCount AS nvarchar(20));
         RETURN;
     END
 
     BEGIN TRANSACTION;
 
     BEGIN TRY
-        -- 1. Delete from BlobDeltaRunStep (references RunId, but has TableName column)
+        -- 1. Delete from RunStep (references RunId, but has TableName column)
         DELETE s
-        FROM dbo.BlobDeltaRunStep s
+        FROM dbo.RunStep s
         INNER JOIN @TableNamesToDelete t ON s.TableName = t.TableName;
         SET @RowsAffected = @@ROWCOUNT;
-        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaRunStep', @RowsAffected, N'Run step records');
+        INSERT INTO @DeletedCounts VALUES (N'RunStep', @RowsAffected, N'Run step records');
         SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
 
-        -- 2. Delete from BlobDeltaMissingParentsQueue
+        -- 2. Delete from MissingParentsQueue
         DELETE q
-        FROM dbo.BlobDeltaMissingParentsQueue q
+        FROM dbo.MissingParentsQueue q
         INNER JOIN @TableNamesToDelete t ON q.TableName = t.TableName;
         SET @RowsAffected = @@ROWCOUNT;
-        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaMissingParentsQueue', @RowsAffected, N'Missing parents queue entries');
+        INSERT INTO @DeletedCounts VALUES (N'MissingParentsQueue', @RowsAffected, N'Missing parents queue entries');
         SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
 
-        -- 3. Delete from BlobDeltaDeletionLog
+        -- 3. Delete from DeletionLog
         DELETE d
-        FROM dbo.BlobDeltaDeletionLog d
+        FROM dbo.DeletionLog d
         INNER JOIN @TableNamesToDelete t ON d.TableName = t.TableName;
         SET @RowsAffected = @@ROWCOUNT;
-        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaDeletionLog', @RowsAffected, N'Deletion log entries');
+        INSERT INTO @DeletedCounts VALUES (N'DeletionLog', @RowsAffected, N'Deletion log entries');
         SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
 
-        -- 4. Delete from BlobDeltaQueuePopulationScript (TableName is PK)
+        -- 4. Delete from QueuePopulationScript (TableName is PK)
         DELETE s
-        FROM dbo.BlobDeltaQueuePopulationScript s
+        FROM dbo.QueuePopulationScript s
         INNER JOIN @TableNamesToDelete t ON s.TableName = t.TableName;
         SET @RowsAffected = @@ROWCOUNT;
-        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaQueuePopulationScript', @RowsAffected, N'Queue population scripts');
+        INSERT INTO @DeletedCounts VALUES (N'QueuePopulationScript', @RowsAffected, N'Queue population scripts');
         SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
 
-        -- 5. Delete from BlobDeltaHighWatermark (TableName is PK, references BlobDeltaTableConfig)
+        -- 5. Delete from HighWatermark (TableName is PK, references TableConfig)
         DELETE h
-        FROM dbo.BlobDeltaHighWatermark h
+        FROM dbo.HighWatermark h
         INNER JOIN @TableNamesToDelete t ON h.TableName = t.TableName;
         SET @RowsAffected = @@ROWCOUNT;
-        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaHighWatermark', @RowsAffected, N'High watermark records');
+        INSERT INTO @DeletedCounts VALUES (N'HighWatermark', @RowsAffected, N'High watermark records');
         SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
 
-        -- 6. Delete from BlobDeltaTableConfig (TableName is PK) - last, as other tables reference it
+        -- 6. Delete from TableConfig (TableName is PK) - last, as other tables reference it
         DELETE c
-        FROM dbo.BlobDeltaTableConfig c
+        FROM dbo.TableConfig c
         INNER JOIN @TableNamesToDelete t ON c.TableName = t.TableName;
         SET @RowsAffected = @@ROWCOUNT;
-        INSERT INTO @DeletedCounts VALUES (N'BlobDeltaTableConfig', @RowsAffected, N'Table configuration records');
+        INSERT INTO @DeletedCounts VALUES (N'TableConfig', @RowsAffected, N'Table configuration records');
+        SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
+
+        -- 7. Delete from TargetDatabases for this database.
+        DELETE td
+        FROM dbo.TargetDatabases td
+        WHERE td.TargetDatabase = @DatabaseName;
+        SET @RowsAffected = @@ROWCOUNT;
+        INSERT INTO @DeletedCounts VALUES (N'TargetDatabases', @RowsAffected, N'Target database extraction flags');
         SET @TotalRowsDeleted = @TotalRowsDeleted + @RowsAffected;
 
         COMMIT TRANSACTION;

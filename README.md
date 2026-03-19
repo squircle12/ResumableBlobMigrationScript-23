@@ -19,12 +19,12 @@ This document describes the V3 **Blob Delta Jobs** project, which builds on the 
 
 - **New job DB**: `BlobDeltaJobs`
   - Owns all **orchestration** and **run metadata**:
-    - `BlobDeltaTableConfig` – per logical table config (source/target/metadata, `ModifiedOn` column, safety buffer, flags).
-    - `BlobDeltaHighWatermark` – per table last processed `ModifiedOn`, plus an `IsRunning` lease.
-    - `BlobDeltaRun` / `BlobDeltaRunStep` – run headers and per-step/batch progress.
-    - `BlobDeltaMissingParentsQueue` – queue of parent blobs to back-fill.
-    - `BlobDeltaStepScript` / `BlobDeltaQueuePopulationScript` – script templates (Roots / MissingParents / Children) with placeholders.
-    - `BlobDeltaDeletionLog` – optional log for rare deletions.
+    - `TableConfig` – per logical table config (source/target/metadata, `ModifiedOn` column, safety buffer, flags).
+    - `HighWatermark` – per table last processed `ModifiedOn`, plus an `IsRunning` lease.
+    - `Run` / `RunStep` – run headers and per-step/batch progress.
+    - `MissingParentsQueue` – queue of parent blobs to back-fill.
+    - `StepScript` / `QueuePopulationScript` – script templates (Roots / MissingParents / Children) with placeholders.
+    - `DeletionLog` – optional log for rare deletions.
   - References the existing **blob/FileTable DB** (`Gwent_LA_FileTable`) and **metadata DB** (`AdvancedRBS_MetaData`) via three-part names.
 
 - **Change detection via `[ModifiedOn]`**
@@ -43,8 +43,8 @@ This document describes the V3 **Blob Delta Jobs** project, which builds on the 
   - Each step is driven by **scripts stored in tables**, so new tables or logic variations can be added without altering the engine procedure.
 
 - **High-watermarks and resumability**
-  - For each table, `BlobDeltaHighWatermark.LastHighWaterModifiedOn` is advanced to `WindowEnd` only after all three steps succeed.
-  - Runs are **resumable** by `RunId`: `BlobDeltaRunStep` logs per-batch status, and queues are keyed by `(RunId, TableName, stream_id)`.
+  - For each table, `HighWatermark.LastHighWaterModifiedOn` is advanced to `WindowEnd` only after all three steps succeed.
+  - Runs are **resumable** by `RunId`: `RunStep` logs per-batch status, and queues are keyed by `(RunId, TableName, stream_id)`.
 
 ---
 
@@ -52,39 +52,39 @@ This document describes the V3 **Blob Delta Jobs** project, which builds on the 
 
 - **Schema script**: `03_BlobDeltaJobs_Schema.sql`
   - Creates the `BlobDeltaJobs` database and core tables:
-    - `BlobDeltaTableConfig`
-    - `BlobDeltaHighWatermark`
-    - `BlobDeltaRun`
-    - `BlobDeltaRunStep`
-    - `BlobDeltaMissingParentsQueue`
-    - `BlobDeltaStepScript`
-    - `BlobDeltaQueuePopulationScript`
-    - `BlobDeltaDeletionLog`
+    - `TableConfig`
+    - `HighWatermark`
+    - `Run`
+    - `RunStep`
+    - `MissingParentsQueue`
+    - `StepScript`
+    - `QueuePopulationScript`
+    - `DeletionLog`
 
 - **Seed script**: `04_BlobDeltaJobs_Seed_Config.sql`
-  - Seeds `BlobDeltaTableConfig` for:
+  - Seeds `TableConfig` for:
     - `Gwent_LA_FileTable.dbo.ReferralAttachment`
     - `Gwent_LA_FileTable.dbo.ClientAttachment`
-  - Initializes matching `BlobDeltaHighWatermark` rows.
-  - Populates `BlobDeltaStepScript` with delta-windowed, BU-aware templates:
+  - Initializes matching `HighWatermark` rows.
+  - Populates `StepScript` with delta-windowed, BU-aware templates:
     - Step 1 `Roots`
     - Step 2 `MissingParentsBatch`
     - Step 3 `Children`
-  - Populates `BlobDeltaQueuePopulationScript` with a shared delta-aware queue population template.
+  - Populates `QueuePopulationScript` with a shared delta-aware queue population template.
 
 - **Engine script**: `05_BlobDeltaJobs_Engine.sql`
   - `usp_BlobDelta_ResolveTableConfig`
     - Helper proc that resolves full table names, metadata column names, and safety buffer for a given `TableName`.
   - `usp_BlobDelta_Run`
     - Core engine that:
-      - Creates/updates a `BlobDeltaRun` row.
-      - Selects active tables from `BlobDeltaTableConfig` (or a single table, if specified).
+      - Creates/updates a `Run` row.
+      - Selects active tables from `TableConfig` (or a single table, if specified).
       - For each table:
-        - Computes `WindowStart` / `WindowEnd` from `BlobDeltaHighWatermark` + `SafetyBufferMinutes`.
+        - Computes `WindowStart` / `WindowEnd` from `HighWatermark` + `SafetyBufferMinutes`.
         - Acquires a simple **lease** (`IsRunning`, `RunLeaseExpiresAt`) to prevent overlapping runs.
-        - Executes Steps 1–3 using `BlobDeltaStepScript` and `BlobDeltaQueuePopulationScript`, passing:
+        - Executes Steps 1–3 using `StepScript` and `QueuePopulationScript`, passing:
           - `@BatchSize`, `@ExcludedStreamId`, `@WindowStart`, `@WindowEnd`.
-        - Logs per-batch progress in `BlobDeltaRunStep`.
+        - Logs per-batch progress in `RunStep`.
         - Advances `LastHighWaterModifiedOn` to `WindowEnd` and clears the lease on success.
       - On error:
         - Logs a `Failed` step row per table.
