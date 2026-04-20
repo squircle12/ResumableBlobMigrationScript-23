@@ -67,7 +67,7 @@ GO
 
 CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_Run
     @RunId        uniqueidentifier = NULL OUTPUT,
-    @RunType      nvarchar(20)     = N'Delta',  -- 'Full','Delta','DryRun'
+    @RunType      nvarchar(20)     = N'Delta',  -- 'Full','Delta'
     @TableName    sysname          = NULL,      -- NULL = all active tables (filtered by @TargetDatabase or TargetDatabases)
     @BatchSize    int              = 5000,
     @MaxDOP       tinyint          = 1,
@@ -85,11 +85,6 @@ BEGIN
     IF @EffectiveBatchSize IS NULL OR @EffectiveBatchSize <= 0
     BEGIN
         SET @EffectiveBatchSize = 5000;
-    END
-
-    IF @DryRun = 1 AND @RunType <> N'DryRun'
-    BEGIN
-        SET @RunType = N'DryRun';
     END
 
     IF @RunId IS NULL
