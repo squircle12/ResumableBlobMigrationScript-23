@@ -85,7 +85,7 @@ DECLARE @GenogramMetadataTable                           sysname = N'cw_Genogram
 DECLARE @GenogramMetadataIdColumn                        sysname = N'cw_Genogramid';
 
 DECLARE @LettersTableName                                sysname = N'Letters';
-DECLARE @LettersMetadataTable                            sysname = N'LetterBase';
+DECLARE @LettersMetadataTable                            sysname = N'LetterBase'; -- LetterOwningBU + no ModifiedOn (engine patch)
 DECLARE @LettersMetadataIdColumn                         sysname = N'ActivityId';
 
 DECLARE @MHALegalStatusAttachmentTableName               sysname = N'MHALegalStatusAttachment';
@@ -779,6 +779,8 @@ GO
 
 -- -----------------------------------------------------------------------------
 -- 3. Queue population script (per-table, shared template for now)
+--    Seed every configured table so a table can be activated without requiring
+--    a second configuration deployment.
 -- -----------------------------------------------------------------------------
 
 -- Queue PK is (RunId, TableName, stream_id). One parent can be referenced by children in
@@ -827,8 +829,6 @@ MERGE dbo.QueuePopulationScript AS t
 USING (
     SELECT TableName
     FROM dbo.TableConfig
-    WHERE IsActive = 1
-      AND SourceDatabase = N'AdvancedRBSBlob_WCCIS'
 ) AS s
 ON t.TableName = s.TableName
 WHEN NOT MATCHED BY TARGET THEN
@@ -836,6 +836,17 @@ WHEN NOT MATCHED BY TARGET THEN
     VALUES (s.TableName, @QueueScript)
 WHEN MATCHED THEN
     UPDATE SET ScriptBody = @QueueScript;
+
+IF EXISTS (
+    SELECT 1
+    FROM dbo.TableConfig AS c
+    LEFT JOIN dbo.QueuePopulationScript AS q
+        ON q.TableName = c.TableName
+    WHERE q.TableName IS NULL
+)
+BEGIN
+    THROW 51000, N'Queue population script seeding failed: one or more configured tables have no script.', 1;
+END;
 GO
 
 PRINT N'BlobDeltaJobs config and script templates seeded/updated successfully.';

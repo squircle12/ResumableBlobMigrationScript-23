@@ -89,3 +89,52 @@ GO
 -- No automatic data changes are made here; this script only defines the view
 -- and documents manual test steps.
 
+-- -----------------------------------------------------------------------------
+-- 3. LetterBase script patch unit test (manual execution)
+-- -----------------------------------------------------------------------------
+-- Validates that usp_BlobDelta_ApplyLetterBaseScriptPatch:
+--   - rewrites RAM.OwningBusinessUnit to LetterOwningBU
+--   - strips ModifiedOn window predicates
+--   - leaves other metadata tables unchanged
+--
+-- Run after deploying 02_BlobDeltaJobs_Engine.sql:
+/*
+DECLARE @Sql nvarchar(max) = N'
+INNER JOIN [MetadataTableFull] RAM WITH (NOLOCK)
+    ON RAM.[MetadataIdColumn] = RAFT.stream_id
+INNER JOIN [BusinessUnitTableFull] BU WITH (NOLOCK)
+    ON BU.businessunit = RAM.OwningBusinessUnit
+WHERE RAFT.parent_path_locator IS NULL
+  AND TGT.stream_id IS NULL
+  AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
+  AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
+';
+DECLARE @SqlOther nvarchar(max) = @Sql;
+
+EXEC dbo.usp_BlobDelta_ApplyLetterBaseScriptPatch
+    @MetadataTableFull = N'AdvancedRBS_MetaData.dbo.LetterBase',
+    @Sql               = @Sql OUTPUT;
+
+IF CHARINDEX(N'LetterOwningBU', @Sql) = 0
+   OR CHARINDEX(N'LOB.ActivityId = RAM.[MetadataIdColumn]', @Sql) = 0
+   OR CHARINDEX(N'BU.businessunit = LOB.OwningBusinessUnit', @Sql) = 0
+   OR CHARINDEX(N'RAM.OwningBusinessUnit', @Sql) > 0
+   OR CHARINDEX(N'MetadataModifiedOnColumn', @Sql) > 0
+BEGIN
+    THROW 51001, N'LetterBase script patch failed: expected LetterOwningBU join and no ModifiedOn window.', 1;
+END
+
+EXEC dbo.usp_BlobDelta_ApplyLetterBaseScriptPatch
+    @MetadataTableFull = N'AdvancedRBS_MetaData.dbo.cw_referralattachmentBase',
+    @Sql               = @SqlOther OUTPUT;
+
+IF @SqlOther NOT LIKE N'%RAM.OwningBusinessUnit%'
+   OR @SqlOther NOT LIKE N'%MetadataModifiedOnColumn%'
+   OR CHARINDEX(N'LetterOwningBU', @SqlOther) > 0
+BEGIN
+    THROW 51002, N'LetterBase script patch incorrectly modified a non-LetterBase script.', 1;
+END
+
+PRINT N'LetterBase script patch unit test passed.';
+*/
+

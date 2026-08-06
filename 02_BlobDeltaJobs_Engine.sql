@@ -17,6 +17,9 @@
 --   The engine is intentionally conservative and logs progress per batch to
 --   BlobDeltaRunStep. It runs tables sequentially per invocation to simplify
 --   locking and observability.
+--   LetterBase is a special case: OwningBusinessUnit is resolved via
+--   LetterOwningBU (ActivityId join), and ModifiedOn window predicates are
+--   stripped (LetterBase has neither column) by usp_BlobDelta_ApplyLetterBaseScriptPatch.
 -- =============================================================================
 
 USE BlobDeltaJobs;
@@ -58,6 +61,88 @@ BEGIN
     BEGIN
         RAISERROR(N'TableName ''%s'' not found or inactive in TableConfig.', 16, 1, @TableName) WITH NOWAIT;
     END
+END;
+GO
+
+-- -----------------------------------------------------------------------------
+-- Helper: LetterBase special-case script rewrites before placeholder replacement.
+--   1) OwningBusinessUnit lives in LetterOwningBU (ActivityId -> OwningBusinessUnit),
+--      not on LetterBase itself.
+--   2) LetterBase has no ModifiedOn; strip delta-window predicates so Roots /
+--      MissingParents queue / Children still run (dedupe via target LEFT JOIN).
+-- -----------------------------------------------------------------------------
+
+CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_ApplyLetterBaseScriptPatch
+    @MetadataTableFull nvarchar(776),
+    @Sql               nvarchar(max) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @MetadataTableFull IS NULL
+       OR PARSENAME(@MetadataTableFull, 1) <> N'LetterBase'
+       OR @Sql IS NULL
+    BEGIN
+        RETURN;
+    END
+
+    -- ----- OwningBusinessUnit via LetterOwningBU -----
+    IF CHARINDEX(N'RAM.OwningBusinessUnit', @Sql) > 0
+    BEGIN
+        DECLARE @MetadataDatabase sysname = PARSENAME(@MetadataTableFull, 3);
+        DECLARE @MetadataSchema   sysname = PARSENAME(@MetadataTableFull, 2);
+
+        IF @MetadataDatabase IS NULL OR @MetadataSchema IS NULL
+        BEGIN
+            RAISERROR(
+                N'Failed to derive LetterOwningBU location from MetadataTableFull ''%s''. Expected Database.Schema.LetterBase.',
+                16, 1, @MetadataTableFull) WITH NOWAIT;
+            RETURN;
+        END
+
+        -- Same metadata database/schema as LetterBase (e.g. AdvancedRBS_MetaData.dbo.LetterOwningBU).
+        DECLARE @LetterOwningBUTableFull nvarchar(776) =
+            @MetadataDatabase + N'.' + @MetadataSchema + N'.LetterOwningBU';
+
+        -- Insert LetterOwningBU ahead of the LA_BU join (works for indented and non-indented templates).
+        SET @Sql = REPLACE(
+            @Sql,
+            N'INNER JOIN [BusinessUnitTableFull] BU WITH (NOLOCK)',
+            N'INNER JOIN [LetterOwningBUTableFull] LOB WITH (NOLOCK)
+    ON LOB.ActivityId = RAM.[MetadataIdColumn]
+INNER JOIN [BusinessUnitTableFull] BU WITH (NOLOCK)');
+
+        -- Point the BU predicate at LetterOwningBU instead of LetterBase.
+        SET @Sql = REPLACE(
+            @Sql,
+            N'BU.businessunit = RAM.OwningBusinessUnit',
+            N'BU.businessunit = LOB.OwningBusinessUnit');
+
+        SET @Sql = REPLACE(@Sql, N'[LetterOwningBUTableFull]', @LetterOwningBUTableFull);
+    END
+
+    -- ----- No ModifiedOn on LetterBase: drop window filters -----
+    -- Templates use placeholder [MetadataModifiedOnColumn]; strip before it is
+    -- replaced with 'ModifiedOn'. Already-copied rows remain excluded via
+    -- LEFT JOIN target / NOT EXISTS checks in the script templates.
+    IF CHARINDEX(N'RAM.[MetadataModifiedOnColumn]', @Sql) > 0
+    BEGIN
+        SET @Sql = REPLACE(@Sql, N'AND RAM.[MetadataModifiedOnColumn] >  @WindowStart', N'');
+        SET @Sql = REPLACE(@Sql, N'AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd', N'');
+    END
+END;
+GO
+
+-- Keep old proc name as a thin wrapper so any ad-hoc callers still work.
+CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_ApplyLetterBaseOwningBUPatch
+    @MetadataTableFull nvarchar(776),
+    @Sql               nvarchar(max) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    EXEC dbo.usp_BlobDelta_ApplyLetterBaseScriptPatch
+        @MetadataTableFull = @MetadataTableFull,
+        @Sql               = @Sql OUTPUT;
 END;
 GO
 
@@ -392,6 +477,11 @@ BEGIN
                         RAISERROR(N'BusinessUnitTableFull is NULL for table ''%s''. TargetTableFull: ''%s''', 16, 1, @T_TableName, @TargetTableFull) WITH NOWAIT;
                     END
 
+                    -- LetterBase: LetterOwningBU for OwningBusinessUnit; no ModifiedOn window.
+                    EXEC dbo.usp_BlobDelta_ApplyLetterBaseScriptPatch
+                        @MetadataTableFull = @MetadataTableFull,
+                        @Sql               = @Sql OUTPUT;
+
                     -- Replace placeholders with table/column names, BU table, and MaxDOP.
                     SET @Sql = REPLACE(@Sql, N'[SourceTableFull]',          ISNULL(@SourceTableFull, N''));
                     SET @Sql = REPLACE(@Sql, N'[TargetTableFull]',          ISNULL(@TargetTableFull, N''));
@@ -581,6 +671,11 @@ BEGIN
                     BEGIN
                         RAISERROR(N'Queue population script not found for table ''%s''.', 16, 1, @T_TableName) WITH NOWAIT;
                     END
+
+                    -- LetterBase: LetterOwningBU for OwningBusinessUnit; no ModifiedOn window.
+                    EXEC dbo.usp_BlobDelta_ApplyLetterBaseScriptPatch
+                        @MetadataTableFull = @MetadataTableFull,
+                        @Sql               = @Sql OUTPUT;
 
                     -- Replace placeholders, including BusinessUnitTableFull so we don't leave a literal
                     -- [BusinessUnitTableFull] token in the dynamic SQL.
@@ -834,6 +929,11 @@ BEGIN
                     BEGIN
                         RAISERROR(N'BusinessUnitTableFull is NULL for table ''%s''. TargetTableFull: ''%s''', 16, 1, @T_TableName, @TargetTableFull) WITH NOWAIT;
                     END
+
+                    -- LetterBase: LetterOwningBU for OwningBusinessUnit; no ModifiedOn window.
+                    EXEC dbo.usp_BlobDelta_ApplyLetterBaseScriptPatch
+                        @MetadataTableFull = @MetadataTableFull,
+                        @Sql               = @Sql OUTPUT;
 
                     SET @Sql = REPLACE(@Sql, N'[SourceTableFull]',          ISNULL(@SourceTableFull, N''));
                     SET @Sql = REPLACE(@Sql, N'[TargetTableFull]',          ISNULL(@TargetTableFull, N''));
