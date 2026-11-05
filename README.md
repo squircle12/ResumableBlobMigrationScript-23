@@ -83,7 +83,8 @@ This document describes the V3 **Blob Delta Jobs** project, which builds on the 
         - Computes `WindowStart` / `WindowEnd` from `HighWatermark` + `SafetyBufferMinutes`.
         - Acquires a simple **lease** (`IsRunning`, `RunLeaseExpiresAt`) to prevent overlapping runs.
         - Executes Steps 1–3 using `StepScript` and `QueuePopulationScript`, passing:
-          - `@BatchSize`, `@ExcludedStreamId`, `@WindowStart`, `@WindowEnd`.
+          - `@BatchSize`, `@WindowStart`, `@WindowEnd`.
+          - Excluded stream ids are not a parameter. They are the comma-separated list `@ExcludedStreamIds` in `usp_BlobDelta_Run`, inlined as `NOT IN ([ExcludedStreamIdList])`.
         - Logs per-batch progress in `RunStep`.
         - Advances `LastHighWaterModifiedOn` to `WindowEnd` and clears the lease on success.
       - On error:

@@ -545,7 +545,7 @@ LEFT JOIN [TargetTableFull] TGT WITH (NOLOCK)
     ON TGT.stream_id = RAFT.stream_id
 WHERE RAFT.parent_path_locator IS NULL
   AND TGT.stream_id IS NULL
-  AND RAFT.stream_id <> @ExcludedStreamId
+  AND RAFT.stream_id NOT IN ([ExcludedStreamIdList])
   AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
   AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
 --  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
@@ -588,7 +588,7 @@ LEFT JOIN [TargetTableFull] TGT WITH (NOLOCK)
     ON TGT.stream_id = RAFT.stream_id
 WHERE RAFT.parent_path_locator IS NULL
   AND TGT.stream_id IS NULL
-  AND RAFT.stream_id <> @ExcludedStreamId
+  AND RAFT.stream_id NOT IN ([ExcludedStreamIdList])
   AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
   AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
 --  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
@@ -723,7 +723,7 @@ LEFT JOIN [TargetTableFull] TGT WITH (NOLOCK)
     ON TGT.stream_id = RAFT.stream_id
 WHERE RAFT.parent_path_locator IS NOT NULL
   AND TGT.stream_id IS NULL
-  AND RAFT.stream_id <> @ExcludedStreamId
+  AND RAFT.stream_id NOT IN ([ExcludedStreamIdList])
   AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
   AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
 --  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
@@ -766,7 +766,7 @@ LEFT JOIN [TargetTableFull] TGT WITH (NOLOCK)
     ON TGT.stream_id = RAFT.stream_id
 WHERE RAFT.parent_path_locator IS NOT NULL
   AND TGT.stream_id IS NULL
-  AND RAFT.stream_id <> @ExcludedStreamId
+  AND RAFT.stream_id NOT IN ([ExcludedStreamIdList])
   AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
   AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
 --  AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
@@ -804,13 +804,13 @@ FROM (
     INNER JOIN [SourceTableFull] Par WITH (NOLOCK)
         ON Par.path_locator = RAFT.parent_path_locator
     WHERE RAFT.parent_path_locator IS NOT NULL
-      AND RAFT.stream_id <> @ExcludedStreamId
+      AND RAFT.stream_id NOT IN ([ExcludedStreamIdList])
       AND RAM.[MetadataModifiedOnColumn] >  @WindowStart
       AND RAM.[MetadataModifiedOnColumn] <= @WindowEnd
  --     AND (CASE WHEN @BusinessUnitId IS NULL THEN 1 WHEN BU.businessunit = @BusinessUnitId THEN 1 ELSE 0 END = 1)
     GROUP BY Par.stream_id
 ) Par
-WHERE Par.stream_id <> @ExcludedStreamId
+WHERE Par.stream_id NOT IN ([ExcludedStreamIdList])
   AND NOT EXISTS (
       SELECT 1
       FROM [TargetTableFull] T WITH (NOLOCK)

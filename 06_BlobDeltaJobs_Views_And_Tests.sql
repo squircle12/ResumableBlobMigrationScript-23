@@ -138,3 +138,49 @@ END
 PRINT N'LetterBase script patch unit test passed.';
 */
 
+-- -----------------------------------------------------------------------------
+-- 4. Excluded stream id list unit test (manual execution)
+-- -----------------------------------------------------------------------------
+-- Validates that usp_BlobDelta_BuildExcludedStreamIdList:
+--   - canonicalises, trims, and de-duplicates GUIDs into a NOT IN fragment
+--   - rejects an empty list
+--   - rejects a token that is not a GUID
+--
+-- Run after deploying 02_BlobDeltaJobs_Engine.sql:
+/*
+DECLARE @List nvarchar(max);
+
+EXEC dbo.usp_BlobDelta_BuildExcludedStreamIdList
+    @ExcludedStreamIds    = N' 7f8d53ec-b98c-f011-b86b-005056a2dd37 , 7F8D53EC-B98C-F011-B86B-005056A2DD37, AABBCCDD-EEFF-0011-2233-445566778899, ',
+    @ExcludedStreamIdList = @List OUTPUT;
+
+IF @List <> N'''7F8D53EC-B98C-F011-B86B-005056A2DD37'',''AABBCCDD-EEFF-0011-2233-445566778899'''
+BEGIN
+    THROW 51011, N'Excluded stream id list was not canonicalised and de-duplicated.', 1;
+END
+
+BEGIN TRY
+    EXEC dbo.usp_BlobDelta_BuildExcludedStreamIdList
+        @ExcludedStreamIds    = N' , ',
+        @ExcludedStreamIdList = @List OUTPUT;
+    THROW 51012, N'Empty excluded stream id list should have failed.', 1;
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER() <> 50002
+        THROW;
+END CATCH
+
+BEGIN TRY
+    EXEC dbo.usp_BlobDelta_BuildExcludedStreamIdList
+        @ExcludedStreamIds    = N'7F8D53EC-B98C-F011-B86B-005056A2DD37,not-a-guid',
+        @ExcludedStreamIdList = @List OUTPUT;
+    THROW 51013, N'A non-GUID excluded stream id should have failed.', 1;
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER() <> 50001
+        THROW;
+END CATCH
+
+PRINT N'Excluded stream id list unit test passed.';
+*/
+

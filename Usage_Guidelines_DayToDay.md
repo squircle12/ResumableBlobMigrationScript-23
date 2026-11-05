@@ -84,9 +84,8 @@ Determines the type of extraction you want to perform.
 - **Options**:  
   - `'Full'` &mdash; Runs a full extract, bringing all eligible data into the target database (and resetting the "high water mark" for delta runs).
   - `'Delta'` &mdash; Extracts only new or changed records since the last run, according to the high water mark.
-  - `'DryRun'` &mdash; Prints the dynamic SQL statements that would be executed, but *does not* modify or insert any data (useful for debugging).
 - **Typical Values**:  
-`'Full'`, `'Delta'`, `'DryRun'`  
+`'Full'`, `'Delta'`  
 (Can also be passed as `N'Full'` etc. for explicit Unicode.)
 
 ---
@@ -140,7 +139,8 @@ DECLARE @return_value int, @RunId uniqueidentifier
 
 EXEC @return_value = [dbo].[usp_BlobDelta_Run]
     @RunId = @RunId OUTPUT,
-    @RunType = N'DryRun',
+    @RunType = N'Full',
+    @DryRun = 1,
     @TargetDatabase = N'Wrexham_LA_FileTable'
 
 SELECT @RunId as N'@RunId'
@@ -151,12 +151,11 @@ SELECT 'Return Value' = @return_value
 
 **Summary Table:**
 
-
-| Parameter         | Description                                   | Example Value           |
-| ----------------- | --------------------------------------------- | ----------------------- |
-| `@RunType`        | Extract mode (`Full`, `Delta`, or `DryRun`)   | `N'Full'` / `N'Delta'`  |
-| `@TargetDatabase` | Name of the destination LA FileTable database | `N'Gwent_LA_FileTable'` |
-
+| Parameter         | Description                                                                                                  | Example Value           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| `@RunType`        | Extract mode (`Full` or `Delta`)                                                                             | `N'Full'` / `N'Delta'`  |
+| `@TargetDatabase` | Name of the destination LA FileTable database                                                                | `N'Gwent_LA_FileTable'` |
+| `@DryRun`           | Optional single bit defining whether to just output the SQL (1) or continue with a standard run (0, default) |    `1` or `0`                     |
 
 ---
 
@@ -171,6 +170,7 @@ To back up an LA's FileTable database, use the provided backup script found at [
 **You only need to change one line:** set the `@DbName` variable at the top of the script to your target FileTable database (e.g., `N'YnysMon_LA_FileTable'`).
 
 Example:
+
 ```
 DECLARE
       @DbName         sysname        = N'YnysMon_LA_FileTable' -- database to back up
@@ -200,10 +200,12 @@ To truncate (i.e., empty) all FILETABLE data for an LA FileTable database, use t
 - After setting `@TargetDatabase`, run the script in SQL Server Management Studio (SSMS) or your preferred SQL environment.
 
 **What this script does:**
+
 - Deletes all rows from every FILETABLE in the target database (excluding the implicit root folder row).
 - Attempts to force FILESTREAM garbage collection in the database. This triggers cleanup of deleted blob files on disk.
 
 **Important Notes:**
+
 - **Data is unrecoverable after this operation.** Ensure backups are taken if required.
 - **Space is not immediately freed.** While the script forces FILESTREAM garbage collection, Windows may not immediately reclaim disk space in all scenarios. You might observe freed space with a short delay, depending on the SQL Server version and system activity.
 - No other changes are needed in the script unless you want to change advanced options.

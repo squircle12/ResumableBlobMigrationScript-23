@@ -20,6 +20,9 @@
 --   LetterBase is a special case: OwningBusinessUnit is resolved via
 --   LetterOwningBU (ActivityId join), and ModifiedOn window predicates are
 --   stripped (LetterBase has neither column) by usp_BlobDelta_ApplyLetterBaseScriptPatch.
+--   A small set of stream ids is excluded by a comma-separated list in
+--   usp_BlobDelta_Run. usp_BlobDelta_BuildExcludedStreamIdList turns that list
+--   into a NOT IN literal substituted for [ExcludedStreamIdList].
 -- =============================================================================
 
 USE BlobDeltaJobs;
@@ -147,6 +150,60 @@ END;
 GO
 
 -- -----------------------------------------------------------------------------
+-- Helper: turn a comma-separated GUID list into a quoted NOT IN fragment.
+-- Empty tokens are ignored. A token that is not a GUID, or an empty list,
+-- fails the call. Output is canonical uppercase GUID literals, de-duplicated,
+-- for example: '7F8D53EC-B98C-F011-B86B-005056A2DD37','AABBCCDD-...'
+-- -----------------------------------------------------------------------------
+
+CREATE OR ALTER PROCEDURE dbo.usp_BlobDelta_BuildExcludedStreamIdList
+    @ExcludedStreamIds    nvarchar(max),
+    @ExcludedStreamIdList nvarchar(max) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @Work nvarchar(max) = ISNULL(@ExcludedStreamIds, N'') + N',';
+    DECLARE @Token nvarchar(100);
+    DECLARE @Comma int;
+    DECLARE @Parsed uniqueidentifier;
+    DECLARE @Quoted nvarchar(40);
+    DECLARE @ErrorMessage nvarchar(2048);
+
+    SET @ExcludedStreamIdList = NULL;
+
+    WHILE CHARINDEX(N',', @Work) > 0
+    BEGIN
+        SET @Comma = CHARINDEX(N',', @Work);
+        SET @Token = LTRIM(RTRIM(LEFT(@Work, @Comma - 1)));
+        SET @Work = SUBSTRING(@Work, @Comma + 1, LEN(@Work));
+
+        IF @Token = N''
+            CONTINUE;
+
+        SET @Parsed = TRY_CAST(@Token AS uniqueidentifier);
+        IF @Parsed IS NULL
+        BEGIN
+            SET @ErrorMessage = N'Excluded stream id is not a GUID: ' + @Token;
+            THROW 50001, @ErrorMessage, 1;
+        END
+
+        SET @Quoted = N'''' + CONVERT(nvarchar(36), @Parsed) + N'''';
+        IF @ExcludedStreamIdList IS NOT NULL
+           AND CHARINDEX(@Quoted, @ExcludedStreamIdList) > 0
+            CONTINUE;
+
+        SET @ExcludedStreamIdList = CONCAT(
+            ISNULL(@ExcludedStreamIdList + N',', N''),
+            @Quoted);
+    END
+
+    IF @ExcludedStreamIdList IS NULL
+        THROW 50002, N'Excluded stream id list is empty.', 1;
+END;
+GO
+
+-- -----------------------------------------------------------------------------
 -- Core engine: run delta for one or more tables in a single RunId
 -- -----------------------------------------------------------------------------
 
@@ -171,6 +228,17 @@ BEGIN
     BEGIN
         SET @EffectiveBatchSize = 5000;
     END
+
+    -- One edit point for stream ids that must not be copied. Add further GUIDs
+    -- as comma-separated literals. The step scripts receive them as
+    -- NOT IN ([ExcludedStreamIdList]).
+    DECLARE @ExcludedStreamIds nvarchar(max) =
+        N'7F8D53EC-B98C-F011-B86B-005056A2DD37'; -- global exclusion, as in V2.
+
+    DECLARE @ExcludedStreamIdList nvarchar(max);
+    EXEC dbo.usp_BlobDelta_BuildExcludedStreamIdList
+        @ExcludedStreamIds    = @ExcludedStreamIds,
+        @ExcludedStreamIdList = @ExcludedStreamIdList OUTPUT;
 
     IF @RunId IS NULL
     BEGIN
@@ -284,7 +352,7 @@ BEGIN
             @WindowStart              datetime2(7),
             @WindowEnd                datetime2(7),
             @RunStartForTable         datetime2(7),
-            @ExcludedStreamId         uniqueidentifier,
+            @QueuedRows               int,
             @CurrentStep              tinyint,
             @BatchNumber              int,
             @Rows                     int,
@@ -294,7 +362,6 @@ BEGIN
             @Sql                      nvarchar(max);
 
         SET @RunStartForTable = SYSDATETIME();
-        SET @ExcludedStreamId = '7F8D53EC-B98C-F011-B86B-005056A2DD37'; -- global exclusion, as in V2.
 
         BEGIN TRY
             -- Resolve config for this table.
@@ -490,6 +557,7 @@ BEGIN
                     SET @Sql = REPLACE(@Sql, N'[MetadataModifiedOnColumn]', ISNULL(@MetadataModifiedOnColumn, N''));
                     SET @Sql = REPLACE(@Sql, N'[BusinessUnitTableFull]',    @BusinessUnitTableFull);
                     SET @Sql = REPLACE(@Sql, N'[MaxDOP]',                   CAST(@MaxDOP AS nvarchar(10)));
+                    SET @Sql = REPLACE(@Sql, N'[ExcludedStreamIdList]',     @ExcludedStreamIdList);
 
                     IF @DryRun = 1
                     BEGIN
@@ -497,7 +565,7 @@ BEGIN
                         PRINT @Sql;
                         PRINT N'-- Parameters:'
                             + N' @BatchSize=' + CAST(@EffectiveBatchSize AS nvarchar(20))
-                            + N', @ExcludedStreamId=' + CAST(@ExcludedStreamId AS nvarchar(50))
+                            + N', @ExcludedStreamIds=' + @ExcludedStreamIds
                             + N', @WindowStart=' + CAST(@WindowStart AS nvarchar(50))
                             + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50));
                         -- In dry run we only print the generated SQL once for this step.
@@ -507,11 +575,9 @@ BEGIN
                     BEGIN TRY
                         EXEC sp_executesql @Sql,
                             N'@BatchSize int,
-                              @ExcludedStreamId uniqueidentifier,
                               @WindowStart datetime2(7),
                               @WindowEnd datetime2(7)',
                             @BatchSize      = @EffectiveBatchSize,
-                            @ExcludedStreamId = @ExcludedStreamId,
                             @WindowStart    = @WindowStart,
                             @WindowEnd      = @WindowEnd;
 
@@ -686,6 +752,7 @@ BEGIN
                         N'[MetadataIdColumn]',         ISNULL(@MetadataIdColumn, N'')),
                         N'[MetadataModifiedOnColumn]', ISNULL(@MetadataModifiedOnColumn, N'')),
                         N'[BusinessUnitTableFull]',    ISNULL(@BusinessUnitTableFull, N''));
+                    SET @Sql = REPLACE(@Sql, N'[ExcludedStreamIdList]', @ExcludedStreamIdList);
 
                     IF @DryRun = 1
                     BEGIN
@@ -694,7 +761,7 @@ BEGIN
                         PRINT N'-- Parameters:'
                             + N' @RunId=' + CAST(@RunId AS nvarchar(50))
                             + N', @TableName=' + @T_TableName
-                            + N', @ExcludedStreamId=' + CAST(@ExcludedStreamId AS nvarchar(50))
+                            + N', @ExcludedStreamIds=' + @ExcludedStreamIds
                             + N', @WindowStart=' + CAST(@WindowStart AS nvarchar(50))
                             + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50));
                     END
@@ -703,12 +770,10 @@ BEGIN
                         EXEC sp_executesql @Sql,
                             N'@RunId uniqueidentifier,
                               @TableName sysname,
-                              @ExcludedStreamId uniqueidentifier,
                               @WindowStart datetime2(7),
                               @WindowEnd datetime2(7)',
                             @RunId          = @RunId,
                             @TableName      = @T_TableName,
-                            @ExcludedStreamId = @ExcludedStreamId,
                             @WindowStart    = @WindowStart,
                             @WindowEnd      = @WindowEnd;
                     END
@@ -722,14 +787,26 @@ BEGIN
 
                     CREATE TABLE #Batch (stream_id uniqueidentifier PRIMARY KEY);
 
+                    -- Same exclusion list as the step scripts. Already-queued parents
+                    -- are skipped, and stay unprocessed, so a resumed run does not copy them.
+                    SET @Sql = N'
                     INSERT INTO #Batch (stream_id)
-                    SELECT TOP (@EffectiveBatchSize) Q.stream_id
+                    SELECT TOP (@BatchSize) Q.stream_id
                     FROM dbo.MissingParentsQueue Q WITH (READPAST)
                     WHERE Q.RunId = @RunId
-                      AND Q.TableName = @T_TableName
-                      AND Q.Processed = 0;
+                      AND Q.TableName = @TableName
+                      AND Q.Processed = 0
+                      AND Q.stream_id NOT IN (' + @ExcludedStreamIdList + N');
+                    SET @QueuedRows = @@ROWCOUNT;';
 
-                    IF @@ROWCOUNT = 0
+                    EXEC sp_executesql @Sql,
+                        N'@BatchSize int, @RunId uniqueidentifier, @TableName sysname, @QueuedRows int OUTPUT',
+                        @BatchSize  = @EffectiveBatchSize,
+                        @RunId      = @RunId,
+                        @TableName  = @T_TableName,
+                        @QueuedRows = @QueuedRows OUTPUT;
+
+                    IF @QueuedRows = 0
                     BEGIN
                         DROP TABLE #Batch;
                         BREAK;
@@ -941,6 +1018,7 @@ BEGIN
                     SET @Sql = REPLACE(@Sql, N'[MetadataIdColumn]',         ISNULL(@MetadataIdColumn, N''));
                     SET @Sql = REPLACE(@Sql, N'[MetadataModifiedOnColumn]', ISNULL(@MetadataModifiedOnColumn, N''));
                     SET @Sql = REPLACE(@Sql, N'[BusinessUnitTableFull]',    @BusinessUnitTableFull);
+                    SET @Sql = REPLACE(@Sql, N'[ExcludedStreamIdList]',     @ExcludedStreamIdList);
 
                     -- Step 3 uses MAXDOP 1 in the template; no [MaxDOP] placeholder.
 
@@ -950,7 +1028,7 @@ BEGIN
                         PRINT @Sql;
                         PRINT N'-- Parameters:'
                             + N' @BatchSize=' + CAST(@EffectiveBatchSize AS nvarchar(20))
-                            + N', @ExcludedStreamId=' + CAST(@ExcludedStreamId AS nvarchar(50))
+                            + N', @ExcludedStreamIds=' + @ExcludedStreamIds
                             + N', @WindowStart=' + CAST(@WindowStart AS nvarchar(50))
                             + N', @WindowEnd=' + CAST(@WindowEnd AS nvarchar(50));
                         -- In dry run we only print the generated SQL once for this step.
@@ -960,11 +1038,9 @@ BEGIN
                     BEGIN TRY
                         EXEC sp_executesql @Sql,
                             N'@BatchSize int,
-                              @ExcludedStreamId uniqueidentifier,
                               @WindowStart datetime2(7),
                               @WindowEnd datetime2(7)',
                             @BatchSize      = @EffectiveBatchSize,
-                            @ExcludedStreamId = @ExcludedStreamId,
                             @WindowStart    = @WindowStart,
                             @WindowEnd      = @WindowEnd;
 
